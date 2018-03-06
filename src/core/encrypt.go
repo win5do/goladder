@@ -2,46 +2,146 @@ package core
 
 import (
 	"crypto/aes"
+	"crypto/md5"
+	"crypto/rand"
+	"io"
 	"crypto/cipher"
-	"bytes"
+	"net"
+	"errors"
+	"log"
 )
 
-func AesEncrypt(src, key []byte) ([]byte, error) {
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return nil, err
-	}
-	blockSize := block.BlockSize()
-	src = PKCS5Padding(src, blockSize)
-	blockMode := cipher.NewCBCEncrypter(block, key[:blockSize])
-	enc := make([]byte, len(src))
-	blockMode.CryptBlocks(enc, src)
-	return enc, nil
+type sconn struct {
+	key []byte
+	net.Conn
 }
 
-func AesDecrypt(enc, key []byte) ([]byte, error) {
+func newSconn(key string, conn net.Conn) sconn {
+	k := hashKey(key)
+	return sconn{
+		k,
+		conn,
+	}
+}
+
+func hashKey(key string) []byte {
+	h := md5.New()
+	return h.Sum([]byte(key))[8:24]
+}
+
+func encrypt(src, key []byte) ([]byte, error) {
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		return nil, err
 	}
-	blockSize := block.BlockSize()
-	blockMode := cipher.NewCBCDecrypter(block, key[:blockSize])
-	src := make([]byte, len(enc))
-	blockMode.CryptBlocks(src, enc)
-	src = PKCS5UnPadding(src)
+
+	encrypted := make([]byte, aes.BlockSize+len(src))
+	iv := encrypted[:aes.BlockSize]
+	if _, err := io.ReadFull(rand.Reader, iv); err != nil {
+		return nil, err
+	}
+	stream := cipher.NewCFBEncrypter(block, iv)
+	stream.XORKeyStream(encrypted[aes.BlockSize:], src)
+	return encrypted, nil
+}
+
+func decrypt(encrypted, key []byte) ([]byte, error) {
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(encrypted) < aes.BlockSize {
+		return nil, errors.New("密文太短")
+	}
+
+	iv := encrypted[:aes.BlockSize]
+	src := encrypted[aes.BlockSize:]
+
+	stream := cipher.NewCFBDecrypter(block, iv)
+	stream.XORKeyStream(src, src)
 	return src, nil
 }
 
-func PKCS5Padding(enc []byte, blockSize int) []byte {
-	// 只要少于256就能放到一个block中，默认的blockSize=16(即采用16*8=128, AES-128长的密钥)
-	// 最少填充1个byte，如果原文刚好是blocksize的整数倍，则再填充一个blocksize
-	padding := blockSize - len(enc)%blockSize        //需要padding的数目
-	padtext := bytes.Repeat([]byte{byte(padding)}, padding) //生成填充的文本
-	return append(enc, padtext...)
+// 加密写入
+func (src *sconn) encryptWrite(painText []byte) (int, error) {
+	encrypted, err := encrypt(painText, src.key)
+	if err != nil {
+		return 0, err
+	}
+	return src.Write(encrypted)
 }
 
-func PKCS5UnPadding(src []byte) []byte {
-	length := len(src)
-	unpadding := int(src[length-1])
-	return src[:(length - unpadding)]
+// 解密读入
+func (src *sconn) decryptRead(painText []byte) (n int, err error) {
+	encrypted := make([]byte, 32*1024)
+	n, err = src.Read(encrypted)
+	if err != nil {
+		return
+	} else {
+		var b []byte
+		b, err = decrypt(encrypted[:n], src.key)
+		copy(painText, b)
+		return len(b), err
+	}
+}
+
+// 加密复制
+func (src *sconn) encryptCopy(dst sconn) (n int64, err error) {
+	buf := make([]byte, 32*1024)
+	for {
+		// 读取
+		nr, err := src.Read(buf)
+		if err != nil {
+			if err != io.EOF {
+				log.Println(err)
+			}
+			break
+		}
+
+		if nr > 0 {
+			// 写入
+			nw, err := dst.encryptWrite(buf[:nr])
+			if err != nil {
+				log.Println(err)
+				break
+			}
+
+			if nw > 0 {
+				n += int64(nw)
+			}
+		}
+	}
+
+	return n, err
+}
+
+// 解密复制
+func (src *sconn) decryptCopy(dst sconn) (n int64, err error) {
+	buf := make([]byte, 32*1024)
+	for {
+		// 读取
+		nr, err := src.decryptRead(buf)
+		if err != nil {
+			if err != io.EOF {
+				log.Println(err)
+			}
+			break
+		}
+
+		if nr > 0 {
+			// 写入
+			nw, err := dst.Write(buf[0:nr])
+			if err != nil {
+				log.Println(err)
+				break
+			}
+
+			if nw > 0 {
+				n += int64(nw)
+			}
+		}
+	}
+
+	return n, err
 }
