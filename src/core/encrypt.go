@@ -93,9 +93,10 @@ func (src *sconn) encryptCopy(dst sconn) (n int64, err error) {
 		// 读取
 		nr, err := src.Read(buf)
 		if err != nil {
-			if err != io.EOF {
-				log.Println(err)
-			}
+			// 一般为连接断开错误
+			//if err != io.EOF {
+			//	log.Println(err)
+			//}
 			break
 		}
 
@@ -123,9 +124,9 @@ func (src *sconn) decryptCopy(dst sconn) (n int64, err error) {
 		// 读取
 		nr, err := src.decryptRead(buf)
 		if err != nil {
-			if err != io.EOF {
-				log.Println(err)
-			}
+			//if err != io.EOF {
+			//	log.Println(err)
+			//}
 			break
 		}
 

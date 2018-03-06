@@ -3,8 +3,8 @@ package core
 import (
 	"net"
 	"log"
-	"fmt"
 	"encoding/binary"
+	"time"
 )
 
 type Socks struct {
@@ -40,7 +40,7 @@ func listen(s Socks, cb func(sconn, Socks)) {
 // 处理客户端连接
 func handleClient(sc sconn, s Socks) {
 	defer sc.Close()
-	remote, err := net.Dial("tcp", s.Remote)
+	remote, err := net.DialTimeout("tcp", s.Remote, 5*time.Second)
 	defer remote.Close()
 	LogErr(err)
 
@@ -61,7 +61,6 @@ func handleServer(sc sconn, s Socks) {
 	buf := make([]byte, 256)
 	_, err := sc.decryptRead(buf)
 	LogErr(err)
-	fmt.Println("内容：", buf)
 
 	if buf[0] != 5 {
 		// 只支持socks5
@@ -80,7 +79,6 @@ func handleServer(sc sconn, s Socks) {
 	*/
 	n, err := sc.decryptRead(buf)
 	LogErr(err)
-	fmt.Println("连接：", buf)
 	if buf[1] != 1 {
 		// 目前只支持 CONNECT
 		return
@@ -120,9 +118,8 @@ func handleServer(sc sconn, s Socks) {
 	_, err = sc.encryptWrite([]byte{5, 0, 0, 1, 0, 0, 0, 0, 0, 0})
 	LogErr(err)
 
-	fmt.Println(dstAddr.String())
 	// 连接真正的远程服务
-	dst, err := net.Dial("tcp", dstAddr.String())
+	dst, err := net.DialTimeout("tcp", dstAddr.String(), 5*time.Second)
 	defer dst.Close()
 	LogErr(err)
 	sdst := newSconn(s.Key, dst)
