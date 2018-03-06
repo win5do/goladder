@@ -3,12 +3,11 @@ package core
 import (
 	"net"
 	"testing"
-	"time"
 )
 
 const ADR = ":54321"
 
-func makeConn(t *testing.T) (local, remote sconn) {
+func makeConn(t *testing.T) (client, server sconn) {
 	listen, err := net.Listen("tcp", ADR)
 	defer listen.Close()
 	if err != nil {
@@ -19,28 +18,28 @@ func makeConn(t *testing.T) (local, remote sconn) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	local = newSconn(KEY, conn)
+	client = newSconn(KEY, conn)
 
 	dst, err := listen.Accept()
 	if err != nil {
 		t.Fatal(err)
 	}
-	remote = newSconn(KEY, dst)
+	server = newSconn(KEY, dst)
 	return
 }
 
 func TestReadAndWrite(t *testing.T) {
-	local, remote := makeConn(t)
-	defer local.Close()
-	defer remote.Close()
+	client, server := makeConn(t)
+	defer client.Close()
+	defer server.Close()
 
-	_, err := local.encryptWrite([]byte(SRC))
+	_, err := client.encryptWrite([]byte(SRC))
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	buf := make([]byte, len(SRC))
-	n, err := remote.decryptRead(buf)
+	n, err := server.decryptRead(buf)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,84 +49,66 @@ func TestReadAndWrite(t *testing.T) {
 }
 
 func TestEncryptCopy(t *testing.T) {
-	local, remote := makeConn(t)
-	go func() {
-		time.Sleep(time.Second * 1)
-		local.Close()
-		remote.Close()
-	}()
+	client, server := makeConn(t)
+	defer client.Close()
+	defer server.Close()
 
-	_, err := local.Write([]byte(SRC))
+	_, err := client.Write([]byte(SRC))
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	go func() {
-		_, err = remote.encryptCopy(local)
+		_, err = server.encryptCopy(server)
 		if err != nil {
 			t.Fatal(err)
 		}
 	}()
 
-	encrypted, err := encrypt([]byte(SRC), hashKey(KEY))
+	buf := make([]byte, 1024)
+	n, err := client.Read(buf)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	for {
-		buf := make([]byte, len(encrypted))
-		n, err := local.Read(buf)
-		if err != nil {
-			break
-		}
+	painText, err := decrypt(buf[:n], hashKey(KEY))
+	if err != nil {
+		t.Fatal(err)
+	}
 
-		if n == 0 {
-			continue
-		}
-
-		str := string(buf)
-		t.Log(str)
-		if n != len(encrypted) || str != string(encrypted) {
-			t.Error("数据不对")
-		}
+	str := string(painText)
+	t.Log(str)
+	if str != SRC {
+		t.Error("数据不对")
 	}
 }
 
 func TestDecryptCopy(t *testing.T) {
-	local, remote := makeConn(t)
-	go func() {
-		time.Sleep(time.Second * 1)
-		local.Close()
-		remote.Close()
-	}()
+	client, server := makeConn(t)
+	defer client.Close()
+	defer server.Close()
 
-	_, err := local.encryptWrite([]byte(SRC))
+	_, err := client.encryptWrite([]byte(SRC))
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	go func() {
-		_, err = remote.decryptCopy(local)
+		_, err = server.decryptCopy(server)
 		if err != nil {
 			t.Fatal(err)
 		}
 	}()
 
-	for {
-		buf := make([]byte, len(SRC))
-		n, err := local.Read(buf)
-		if err != nil {
-			break
-		}
+	buf := make([]byte, 1024)
+	n, err := client.Read(buf)
+	if err != nil {
+		t.Fatal(err)
+	}
 
-		if n == 0 {
-			continue
-		}
-
-		str := string(buf)
-		t.Log(str)
-		if n != len(SRC) || str != SRC {
-			t.Error("数据不对")
-		}
+	str := string(buf[:n])
+	t.Log(str)
+	if n != len(SRC) || str != SRC {
+		t.Error("数据不对")
 	}
 }
