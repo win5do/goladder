@@ -18,13 +18,13 @@ func makeConn(t *testing.T) (client, server sconn) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	client = newSconn(KEY, conn)
+	client = newSconn(conn, KEY)
 
 	dst, err := listen.Accept()
 	if err != nil {
 		t.Fatal(err)
 	}
-	server = newSconn(KEY, dst)
+	server = newSconn(dst, KEY)
 	return
 }
 

@@ -3,10 +3,11 @@ package main
 import "goladder/src/core"
 
 func main() {
-	s := core.Socks{
-		"123456",
+	core.ListenClient(core.Config{
 		":8888",
-		"45.77.145.34:9999",
-	}
-	s.ListenClient()
+		[]core.ServerConfig{
+			{":9999", "123456", 60},
+			{":9998", "123456", 40},
+		},
+	})
 }

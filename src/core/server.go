@@ -1,29 +1,20 @@
 package core
 
 import (
+	"encoding/binary"
 	"net"
 	"log"
-	"encoding/binary"
-	"time"
 )
 
-type Socks struct {
-	Key    string
-	Listen string // 监听端口
-	Remote string
+func ListenServer(config Config) {
+	for _, i := range config.server {
+		go listenServer(i)
+	}
 }
 
-func (s Socks) ListenClient() {
-	listen(s, handleClient)
-}
-
-func (s Socks) ListenServer() {
-	listen(s, handleServer)
-}
-
-func listen(s Socks, cb func(sconn, Socks)) {
-	listener, err := net.Listen("tcp", s.Listen)
-	LogFatal(err)
+func listenServer(oneServer ServerConfig) {
+	listener, err := net.Listen("tcp", oneServer.adr)
+	LogErr(err)
 	defer listener.Close()
 
 	for {
@@ -31,35 +22,17 @@ func listen(s Socks, cb func(sconn, Socks)) {
 		if err != nil {
 			log.Println(err)
 		} else {
-			sconn := newSconn(s.Key, conn)
-			go cb(sconn, s)
+			sconn := newSconn(conn, oneServer.password)
+			go handleServerConn(sconn, oneServer)
 		}
 	}
 }
 
-// 处理客户端连接
-func handleClient(sc sconn, s Socks) {
-	defer sc.Close()
-	remote, err := net.DialTimeout("tcp", s.Remote, 5*time.Second)
-	defer remote.Close()
-	LogErr(err)
-
-	sremote := newSconn(s.Key, remote)
-
-	go func() {
-		_, err = sremote.decryptCopy(sc)
-		LogErr(err)
-	}()
-
-	_, err = sc.encryptCopy(sremote)
-	LogErr(err)
-}
-
 // 处理服务端连接
-func handleServer(sc sconn, s Socks) {
-	defer sc.Close()
+func handleServerConn(sserver sconn, oneServer ServerConfig) {
+	defer sserver.Close()
 	buf := make([]byte, 256)
-	_, err := sc.decryptRead(buf)
+	_, err := sserver.decryptRead(buf)
 	LogErr(err)
 
 	if buf[0] != 5 {
@@ -67,7 +40,7 @@ func handleServer(sc sconn, s Socks) {
 		return
 	}
 	// 不需要验证
-	_, err = sc.encryptWrite([]byte{5, 0})
+	_, err = sserver.encryptWrite([]byte{5, 0})
 	LogErr(err)
 
 	/**
@@ -77,7 +50,7 @@ func handleServer(sc sconn, s Socks) {
 		| 1  |  1  | X'00' |  1   | Variable |    2     |
 		+----+-----+-------+------+----------+----------+
 	*/
-	n, err := sc.decryptRead(buf)
+	n, err := sserver.decryptRead(buf)
 	LogErr(err)
 	if buf[1] != 1 {
 		// 目前只支持 CONNECT
@@ -115,20 +88,20 @@ func handleServer(sc sconn, s Socks) {
 		| 1  |  1  | X'00' |  1   | Variable |    2     |
 		+----+-----+-------+------+----------+----------+
 	*/
-	_, err = sc.encryptWrite([]byte{5, 0, 0, 1, 0, 0, 0, 0, 0, 0})
+	_, err = sserver.encryptWrite([]byte{5, 0, 0, 1, 0, 0, 0, 0, 0, 0})
 	LogErr(err)
 
 	// 连接真正的远程服务
-	dst, err := net.DialTimeout("tcp", dstAddr.String(), 5*time.Second)
+	dst, err := net.DialTimeout("tcp", dstAddr.String(), TIMEOUT)
 	defer dst.Close()
 	LogErr(err)
-	sdst := newSconn(s.Key, dst)
+	sdst := newSconn(dst, oneServer.password)
 
 	// 进行转发
 	go func() {
-		_, err := sdst.encryptCopy(sc)
+		_, err := sdst.encryptCopy(sserver)
 		LogErr(err)
 	}()
-	_, err = sc.decryptCopy(sdst)
+	_, err = sserver.decryptCopy(sdst)
 	LogErr(err)
 }

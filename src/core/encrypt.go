@@ -12,15 +12,15 @@ import (
 )
 
 type sconn struct {
-	key []byte
 	net.Conn
+	key []byte
 }
 
-func newSconn(key string, conn net.Conn) sconn {
+func newSconn(conn net.Conn, key string) sconn {
 	k := hashKey(key)
 	return sconn{
-		k,
 		conn,
+		k,
 	}
 }
 
