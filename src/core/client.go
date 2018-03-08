@@ -8,12 +8,16 @@ import (
 	"math/rand"
 )
 
-const TIMEOUT = 5 * time.Second
+const (
+	TIMEOUT = 5 * time.Second
+)
 
 func ListenClient(config Config) {
-	listener, err := net.Listen("tcp", config.client)
-	LogFatal(err)
+	listener, err := net.Listen("tcp", config.Client)
 	defer listener.Close()
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	for {
 		conn, err := listener.Accept()
@@ -28,14 +32,12 @@ func ListenClient(config Config) {
 // 处理客户端连接
 func handleClientConn(client net.Conn, config Config) {
 	defer client.Close()
-	// 均衡负载 随机一个
-	oneServer := weightRandom(config.server)
-	server, err := net.DialTimeout("tcp", oneServer.adr, TIMEOUT)
+	oneServer, server, err := balanceDial(config.Server)
 	defer server.Close()
 	LogErr(err)
 
-	sserver := newSconn(server, oneServer.password)
-	sclient := newSconn(client, oneServer.password)
+	sserver := newSconn(server, oneServer.Password)
+	sclient := newSconn(client, oneServer.Password)
 
 	go func() {
 		_, err = sserver.decryptCopy(sclient)
@@ -46,18 +48,40 @@ func handleClientConn(client net.Conn, config Config) {
 	LogErr(err)
 }
 
-// 根据权重随机
-func weightRandom(w []ServerConfig) ServerConfig {
-	l := len(w)
+// 均衡负载 随机一个服务器连接
+// 如果不可用启用备用服务器
+func balanceDial(config []ServerConfig) (oneServer ServerConfig, conn net.Conn, err error) {
+	randomServer, backup := weightRandom(config)
+	serverConn, err := net.DialTimeout("tcp", randomServer.Adr, TIMEOUT)
+	if err != nil && backup != (ServerConfig{}) {
+		backupConn, err := net.DialTimeout("tcp", backup.Adr, TIMEOUT)
+		if err != nil {
+			log.Println("无可用服务器:", err)
+		}
+		oneServer = backup
+		conn = backupConn
+	} else {
+		oneServer = randomServer
+		conn = serverConn
+	}
+	return
+}
 
+// 根据权重随机
+func weightRandom(w []ServerConfig) (oneServer ServerConfig, backup ServerConfig) {
+	l := len(w)
 	if l <= 1 {
-		return w[0]
+		oneServer = w[0]
+		return
 	}
 
 	sum := 0
-
 	for _, i := range w {
-		sum += i.weight
+		if i.Weight.(string) == "backup" {
+			backup = i
+		} else if i.Weight.(int) > 0 {
+			sum += i.Weight.(int)
+		}
 	}
 
 	seed := rand.NewSource(time.Now().UnixNano())
@@ -68,10 +92,13 @@ func weightRandom(w []ServerConfig) ServerConfig {
 
 	scale := 0
 	for _, i := range w {
-		scale += i.weight
+		scale += i.Weight.(int)
 		if r < float64(scale) {
-			return i
+			oneServer = i
+			return
 		}
 	}
-	return w[len(w)-1]
+
+	oneServer = w[len(w)-1]
+	return
 }

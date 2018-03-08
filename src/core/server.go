@@ -7,13 +7,13 @@ import (
 )
 
 func ListenServer(config Config) {
-	for _, i := range config.server {
+	for _, i := range config.Server {
 		go listenServer(i)
 	}
 }
 
 func listenServer(oneServer ServerConfig) {
-	listener, err := net.Listen("tcp", oneServer.adr)
+	listener, err := net.Listen("tcp", oneServer.Adr)
 	LogErr(err)
 	defer listener.Close()
 
@@ -22,7 +22,7 @@ func listenServer(oneServer ServerConfig) {
 		if err != nil {
 			log.Println(err)
 		} else {
-			sconn := newSconn(conn, oneServer.password)
+			sconn := newSconn(conn, oneServer.Password)
 			go handleServerConn(sconn, oneServer)
 		}
 	}
@@ -95,7 +95,7 @@ func handleServerConn(sserver sconn, oneServer ServerConfig) {
 	dst, err := net.DialTimeout("tcp", dstAddr.String(), TIMEOUT)
 	defer dst.Close()
 	LogErr(err)
-	sdst := newSconn(dst, oneServer.password)
+	sdst := newSconn(dst, oneServer.Password)
 
 	// 进行转发
 	go func() {

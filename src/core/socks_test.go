@@ -5,7 +5,9 @@ import (
 	"testing"
 )
 
-const ADR = ":54321"
+const (
+	ADR = ":54321"
+)
 
 func makeConn(t *testing.T) (client, server sconn) {
 	listen, err := net.Listen("tcp", ADR)

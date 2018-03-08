@@ -5,8 +5,10 @@ import (
 	"fmt"
 )
 
-var KEY = "123456"
-var SRC = "321"
+const (
+	KEY = "123456"
+	SRC = "321"
+)
 
 func TestEncrypt(t *testing.T) {
 	enc, err := encrypt([]byte(SRC), hashKey(KEY))

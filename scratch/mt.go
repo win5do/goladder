@@ -1,14 +1,14 @@
 package main
 
 import (
-	"log"
-	"time"
+	"fmt"
 )
 
-func main() {
-	go func() {
-		log.Println(1)
-	}()
+type st struct {
+	s string
+}
 
-	time.Sleep(1 * time.Second)
+func main() {
+	st := st{}
+	fmt.Println(st.s == "")
 }

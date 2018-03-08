@@ -11,12 +11,6 @@ func init() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 }
 
-func LogFatal(err error) {
-	if err != nil {
-		log.Fatal(err)
-	}
-}
-
 func LogErr(err error) {
 	if err != nil {
 		if err != io.EOF {
