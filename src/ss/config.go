@@ -1,9 +1,10 @@
-package core
+package ss
 
 import (
 	"encoding/json"
 	"log"
 	"io/ioutil"
+	"flag"
 )
 
 type Config struct {
@@ -39,5 +40,11 @@ func ParseConfigFile(filePath string) Config {
 			servers[k].Weight = 100
 		}
 	}
+	return config
+}
+
+func CliFlag(config string) string {
+	flag.StringVar(&config, "config", config, "配置文件相对地址，默认为"+config)
+	flag.Parse()
 	return config
 }

@@ -1,13 +1,9 @@
 package main
 
-import "goladder/src/core"
+import "goladder/src/ss"
 
 func main() {
-	core.ListenClient(core.Config{
-		":8888",
-		[]core.ServerConfig{
-			{":9999", "123456", 60},
-			{":9998", "123456", 40},
-		},
-	})
+	config := ss.CliFlag("./client_config.json")
+	configStruct := ss.ParseConfigFile(config)
+	ss.ListenClient(configStruct)
 }

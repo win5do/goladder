@@ -1,4 +1,4 @@
-package core
+package ss
 
 import (
 	"encoding/binary"
@@ -32,16 +32,6 @@ func listenServer(oneServer ServerConfig) {
 func handleServerConn(sserver sconn, oneServer ServerConfig) {
 	defer sserver.Close()
 	buf := make([]byte, 256)
-	_, err := sserver.decryptRead(buf)
-	LogErr(err)
-
-	if buf[0] != 5 {
-		// 只支持socks5
-		return
-	}
-	// 不需要验证
-	_, err = sserver.encryptWrite([]byte{5, 0})
-	LogErr(err)
 
 	/**
 		+----+-----+-------+------+----------+----------+
@@ -97,7 +87,7 @@ func handleServerConn(sserver sconn, oneServer ServerConfig) {
 	LogErr(err)
 	sdst := newSconn(dst, oneServer.Password)
 
-	// 进行转发
+	// 双向转发
 	go func() {
 		_, err := sdst.encryptCopy(sserver)
 		LogErr(err)

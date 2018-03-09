@@ -1,4 +1,4 @@
-package core
+package ss
 
 import (
 	"net"
@@ -6,6 +6,9 @@ import (
 	"log"
 	"fmt"
 	"math/rand"
+	"io"
+	"bufio"
+	"regexp"
 )
 
 const (
@@ -39,13 +42,85 @@ func handleClientConn(client net.Conn, config Config) {
 	sserver := newSconn(server, oneServer.Password)
 	sclient := newSconn(client, oneServer.Password)
 
-	go func() {
-		_, err = sserver.decryptCopy(sclient)
-		LogErr(err)
-	}()
+	buf := make([]byte, 256)
 
-	_, err = sclient.encryptCopy(sserver)
-	LogErr(err)
+	n, err := io.ReadAtLeast(sclient, buf, 2)
+	if err != nil {
+		LogErr(err)
+	}
+
+	if buf[0] == 5 {
+		// socks5
+
+		// 把剩余的读出来
+		total := int(buf[1]) + 2
+		if n < total {
+			_, err = io.ReadAtLeast(sclient, buf, total-2)
+			LogErr(err)
+		}
+
+		// 不需要验证
+		_, err = sclient.Write([]byte{5, 0})
+		LogErr(err)
+
+		// 双向转发
+		go func() {
+			_, err = sserver.decryptCopy(sclient)
+			LogErr(err)
+		}()
+
+		_, err = sclient.encryptCopy(sserver)
+		LogErr(err)
+	} else {
+		// http
+
+		err := sclient.SetReadDeadline(time.Now().Add(time.Second))
+		if err != nil {
+			return
+		}
+
+		bufrd := bufio.NewReader(sclient)
+
+		// GET / HTTP/1.1
+		line1, err := bufrd.ReadBytes('\n')
+		if err != nil {
+			return
+		}
+		ok, err := regexp.Match(`(?i)HTTP`, line1)
+		if !ok || err != nil {
+			return
+		}
+
+		// host: google.com
+		//line2, err := bufrd.ReadBytes('\n')
+		//if err != nil {
+		//	return
+		//}
+		//ok, err = regexp.Match(`(?i)host:`, line1)
+		//if !ok || err != nil {
+		//	return
+		//}
+	}
+
+	if string(buf[:3]) == "HTT" {
+		// http请求
+	} else if buf[0] == 5 {
+		// socks5
+		// 不需要验证
+		_, err = sclient.Write([]byte{5, 0})
+		LogErr(err)
+
+		// 双向转发
+		go func() {
+			_, err = sserver.decryptCopy(sclient)
+			LogErr(err)
+		}()
+
+		_, err = sclient.encryptCopy(sserver)
+		LogErr(err)
+	} else {
+		return
+	}
 }
 
 // 均衡负载 随机一个服务器连接
