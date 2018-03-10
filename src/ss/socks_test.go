@@ -6,17 +6,17 @@ import (
 )
 
 const (
-	ADR = ":54321"
+	ADDR = ":54321"
 )
 
 func makeConn(t *testing.T) (client, server sconn) {
-	listen, err := net.Listen("tcp", ADR)
-	defer listen.Close()
+	listen, err := net.Listen("tcp", ADDR)
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer listen.Close()
 
-	conn, err := net.Dial("tcp", ADR)
+	conn, err := net.Dial("tcp", ADDR)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,12 +73,12 @@ func TestEncryptCopy(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	painText, err := decrypt(buf[:n], hashKey(KEY))
+	painBuf, err := decrypt(buf[:n], hashKey(KEY))
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	str := string(painText)
+	str := string(painBuf)
 	t.Log(str)
 	if str != SRC {
 		t.Error("数据不对")

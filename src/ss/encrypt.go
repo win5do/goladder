@@ -11,6 +11,10 @@ import (
 	"log"
 )
 
+const (
+	KEY_LEN = 16
+)
+
 type sconn struct {
 	net.Conn
 	key []byte
@@ -35,28 +39,28 @@ func encrypt(src, key []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	encrypted := make([]byte, aes.BlockSize+len(src))
-	iv := encrypted[:aes.BlockSize]
+	encBuf := make([]byte, aes.BlockSize+len(src))
+	iv := encBuf[:aes.BlockSize]
 	if _, err := io.ReadFull(rand.Reader, iv); err != nil {
 		return nil, err
 	}
 	stream := cipher.NewCFBEncrypter(block, iv)
-	stream.XORKeyStream(encrypted[aes.BlockSize:], src)
-	return encrypted, nil
+	stream.XORKeyStream(encBuf[aes.BlockSize:], src)
+	return encBuf, nil
 }
 
-func decrypt(encrypted, key []byte) ([]byte, error) {
+func decrypt(encBuf, key []byte) ([]byte, error) {
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		return nil, err
 	}
 
-	if len(encrypted) < aes.BlockSize {
+	if len(encBuf) < aes.BlockSize {
 		return nil, errors.New("密文太短")
 	}
 
-	iv := encrypted[:aes.BlockSize]
-	src := encrypted[aes.BlockSize:]
+	iv := encBuf[:aes.BlockSize]
+	src := encBuf[aes.BlockSize:]
 
 	stream := cipher.NewCFBDecrypter(block, iv)
 	stream.XORKeyStream(src, src)
@@ -64,26 +68,48 @@ func decrypt(encrypted, key []byte) ([]byte, error) {
 }
 
 // 加密写入
-func (src *sconn) encryptWrite(painText []byte) (int, error) {
-	encrypted, err := encrypt(painText, src.key)
+func (src *sconn) encryptWrite(painBuf []byte) (int, error) {
+	encBuf, err := encrypt(painBuf, src.key)
 	if err != nil {
 		return 0, err
 	}
-	return src.Write(encrypted)
+	return src.Write(encBuf)
 }
 
 // 解密读入
-func (src *sconn) decryptRead(painText []byte) (n int, err error) {
-	encrypted := make([]byte, 32*1024)
-	n, err = src.Read(encrypted)
+func (src *sconn) decryptRead(painBuf []byte) (n int, err error) {
+	encBuf := make([]byte, len(painBuf)+KEY_LEN)
+	n, err = src.Read(encBuf)
 	if err != nil {
 		return
 	} else {
 		var b []byte
-		b, err = decrypt(encrypted[:n], src.key)
-		copy(painText, b)
+		b, err = decrypt(encBuf[:n], src.key)
+		copy(painBuf, b)
 		return len(b), err
 	}
+}
+
+// 最少读 same as io.ReadAtLeast
+func (src *sconn) decryptReadAtLeast(painBuf []byte, min int) (n int, err error) {
+	if len(painBuf) < min {
+		return 0, io.ErrShortBuffer
+	}
+
+	for n < min {
+		add, er := src.decryptRead(painBuf)
+		n += add
+		if er != nil {
+			err = er
+			return
+		}
+	}
+	return
+}
+
+// 满读 same as io.ReadFull
+func (src *sconn) decryptReadFull(painBuf []byte) (int, error) {
+	return src.decryptReadAtLeast(painBuf, len(painBuf))
 }
 
 // 加密复制

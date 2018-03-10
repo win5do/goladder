@@ -4,23 +4,26 @@ import (
 	"net"
 	"time"
 	"log"
-	"fmt"
 	"math/rand"
 	"io"
 	"bufio"
-	"regexp"
+	"net/http"
+	"bytes"
+	"io/ioutil"
+	"encoding/binary"
+	"strconv"
 )
 
 const (
-	TIMEOUT = 5 * time.Second
+	TIMEOUT = 3 * time.Second
 )
 
 func ListenClient(config Config) {
 	listener, err := net.Listen("tcp", config.Client)
-	defer listener.Close()
 	if err != nil {
 		log.Fatal(err)
 	}
+	defer listener.Close()
 
 	for {
 		conn, err := listener.Accept()
@@ -36,89 +39,155 @@ func ListenClient(config Config) {
 func handleClientConn(client net.Conn, config Config) {
 	defer client.Close()
 	oneServer, server, err := balanceDial(config.Server)
+	if err != nil {
+		log.Println(err)
+		return
+	}
 	defer server.Close()
-	LogErr(err)
 
 	sserver := newSconn(server, oneServer.Password)
 	sclient := newSconn(client, oneServer.Password)
 
-	buf := make([]byte, 256)
-
-	n, err := io.ReadAtLeast(sclient, buf, 2)
+	clientRd := bufio.NewReader(sclient)
+	peekBuf, err := clientRd.Peek(2)
 	if err != nil {
-		LogErr(err)
+		log.Println(err)
+		return
 	}
 
-	if buf[0] == 5 {
+	/*
+		+----+----------+----------+
+		|VER | NMETHODS | METHODS  |
+		+----+----------+----------+
+		| 1  |    1     | 1 to 255 |
+		+----+----------+----------+
+	 */
+	if peekBuf[0] == 5 {
 		// socks5
 
 		// 把剩余的读出来
-		total := int(buf[1]) + 2
-		if n < total {
-			_, err = io.ReadAtLeast(sclient, buf, total-2)
-			LogErr(err)
+		total := int(peekBuf[1]) + 2
+		buf := make([]byte, total)
+		_, err = io.ReadFull(clientRd, buf)
+		if err != nil {
+			log.Println(err)
+			return
 		}
+
+		/*
+			+----+--------+
+			|VER | METHOD |
+			+----+--------+
+			| 1  |   1    |
+			+----+--------+
+		*/
 
 		// 不需要验证
 		_, err = sclient.Write([]byte{5, 0})
-		LogErr(err)
-
-		// 双向转发
-		go func() {
-			_, err = sserver.decryptCopy(sclient)
-			LogErr(err)
-		}()
-
-		_, err = sclient.encryptCopy(sserver)
-		LogErr(err)
+		if err != nil {
+			log.Println(err)
+			return
+		}
 	} else {
 		// http
-
-		err := sclient.SetReadDeadline(time.Now().Add(time.Second))
+		req, err := http.ReadRequest(clientRd)
 		if err != nil {
+			log.Println(err)
 			return
 		}
 
-		bufrd := bufio.NewReader(sclient)
-
-		// GET / HTTP/1.1
-		line1, err := bufrd.ReadBytes('\n')
+		// host不含端口 可能为domain、ip
+		host := req.URL.Hostname()
+		hostType, err := hostType(host)
 		if err != nil {
-			return
-		}
-		ok, err := regexp.Match(`(?i)HTTP`, line1)
-		if !ok || err != nil {
+			log.Println(err)
 			return
 		}
 
-		// host: google.com
-		//line2, err := bufrd.ReadBytes('\n')
-		//if err != nil {
-		//	return
-		//}
-		//ok, err = regexp.Match(`(?i)host:`, line1)
-		//if !ok || err != nil {
-		//	return
-		//}
+		var hostBuf []byte
+		if hostType == "domain" {
+			l := uint8(len(host))
+			hostBuf = []byte{3, l}
+			hostBuf = append(hostBuf, []byte(host)...)
+		} else if hostType == "ipv4" || hostType == "ipv6" {
+			ipAddr, err := net.ResolveIPAddr("ip", host)
+			if err != nil {
+				log.Println(err)
+				return
+			}
+			hostBuf = ipAddr.IP
+		}
+
+		portStr := req.URL.Port()
+		port := 80
+		// 默认端口为80 portStr == ""
+		if portStr != "" {
+			port, err = strconv.Atoi(portStr)
+			if err != nil {
+				log.Println(err)
+				return
+			}
+		}
+		portBuf := make([]byte, 2)
+		binary.BigEndian.PutUint16(portBuf, uint16(port))
+
+		socksBuf := []byte{5, 0, 0}
+		socksBuf = append(socksBuf, hostBuf...)
+		socksBuf = append(socksBuf, portBuf...)
+
+		/**
+			+----+-----+-------+------+----------+----------+
+			|VER | CMD |  RSV  | ATYP | DST.ADDR | DST.PORT |
+			+----+-----+-------+------+----------+----------+
+			| 1  |  1  | X'00' |  1   | Variable |    2     |
+			+----+-----+-------+------+----------+----------+
+		*/
+		log.Println("连接信息：", socksBuf)
+		_, err = sserver.encryptWrite(socksBuf)
+		if err != nil {
+			log.Println(err)
+			return
+		}
+
+		// 服务端回应 无用 不需要转发
+		replyBuf := make([]byte, 10)
+		_, err = sserver.decryptReadFull(replyBuf)
+		if err != nil {
+			log.Println(err)
+			return
+		}
+
+		// 将req加密转发
+		reqWt := bytes.NewBuffer([]byte{})
+		err = req.WriteProxy(reqWt)
+		if err != nil {
+			log.Println(err)
+			return
+		}
+		reqBuf, err := ioutil.ReadAll(reqWt)
+		if err != nil {
+			log.Println(err)
+			return
+		}
+		_, err = sserver.encryptWrite(reqBuf)
+		if err != nil {
+			log.Println(err)
+			return
+		}
 	}
 
-	if string(buf[:3]) == "HTT" {
-		// http请求
-	} else if buf[0] == 5 {
-		// socks5
-		// 不需要验证
-		_, err = sclient.Write([]byte{5, 0})
-		LogErr(err)
+	// 双向转发
+	go func() {
+		_, err = sserver.decryptCopy(sclient)
+		if err != nil {
+			log.Println(err)
+			return
+		}
+	}()
 
-		// 双向转发
-		go func() {
-			_, err = sserver.decryptCopy(sclient)
-			LogErr(err)
-		}()
-
-		_, err = sclient.encryptCopy(sserver)
-		LogErr(err)
-	} else {
+	_, err = sclient.encryptCopy(sserver)
+	if err != nil {
+		log.Println(err)
 		return
 	}
 }
@@ -127,11 +196,11 @@ func handleClientConn(client net.Conn, config Config) {
 // 如果不可用启用备用服务器
 func balanceDial(config []ServerConfig) (oneServer ServerConfig, conn net.Conn, err error) {
 	randomServer, backup := weightRandom(config)
-	serverConn, err := net.DialTimeout("tcp", randomServer.Adr, TIMEOUT)
+	serverConn, err := net.DialTimeout("tcp", randomServer.Addr, TIMEOUT)
 	if err != nil && backup != (ServerConfig{}) {
-		backupConn, err := net.DialTimeout("tcp", backup.Adr, TIMEOUT)
-		if err != nil {
-			log.Println("无可用服务器:", err)
+		backupConn, errb := net.DialTimeout("tcp", backup.Addr, TIMEOUT)
+		if errb != nil {
+			err = errb
 		}
 		oneServer = backup
 		conn = backupConn
@@ -151,11 +220,19 @@ func weightRandom(w []ServerConfig) (oneServer ServerConfig, backup ServerConfig
 	}
 
 	sum := 0
+	wint := []ServerConfig{}
+
 	for _, i := range w {
-		if i.Weight.(string) == "backup" {
-			backup = i
-		} else if i.Weight.(int) > 0 {
-			sum += i.Weight.(int)
+		switch q := i.Weight.(type) {
+		case string:
+			if q == "backup" {
+				backup = i
+			}
+		case int:
+			if q > 0 {
+				sum += q
+				wint = append(wint, i)
+			}
 		}
 	}
 
@@ -163,10 +240,9 @@ func weightRandom(w []ServerConfig) (oneServer ServerConfig, backup ServerConfig
 	rd := rand.New(seed)
 	r := rd.Float64()
 	r *= float64(sum)
-	fmt.Println("random:", r)
 
 	scale := 0
-	for _, i := range w {
+	for _, i := range wint {
 		scale += i.Weight.(int)
 		if r < float64(scale) {
 			oneServer = i

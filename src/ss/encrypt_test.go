@@ -18,12 +18,12 @@ func TestEncrypt(t *testing.T) {
 	fmt.Println("byte:", enc)
 	fmt.Printf("string:%s\n", enc)
 
-	painText, err := decrypt(enc, hashKey(KEY))
+	painBuf, err := decrypt(enc, hashKey(KEY))
 	if err != nil {
 		t.Fatal(err)
 	}
-	fmt.Println(string(painText))
-	if string(painText) != SRC {
+	fmt.Println(string(painBuf))
+	if string(painBuf) != SRC {
 		t.Error("加解密错误")
 	}
 }

@@ -13,7 +13,7 @@ type Config struct {
 }
 
 type ServerConfig struct {
-	Adr      string
+	Addr      string
 	Password string
 	Weight   interface{}
 }

@@ -11,11 +11,8 @@ func init() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 }
 
-func LogErr(err error) {
-	if err != nil {
-		if err != io.EOF {
-			log.Println(err)
-		}
-		return
+func logErr(err error) {
+	if err != io.EOF {
+		log.Println(err)
 	}
 }

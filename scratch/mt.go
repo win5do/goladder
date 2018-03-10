@@ -1,13 +1,18 @@
 package main
 
 import (
+	"strings"
+	"bufio"
 	"fmt"
+	"io"
 )
 
 func main() {
-	b := make([]byte, 5)
-	b1 := b[:3]
-	b[4] = 5
-	b[2] = 3
-	fmt.Println(b1, len(b1), cap(b1))
+	srd := strings.NewReader("12345")
+	brd := bufio.NewReader(srd)
+	peekBuf, err := brd.Peek(2)
+	fmt.Println(err, peekBuf)
+	buf := make([]byte, 4)
+	_, err = io.ReadFull(brd, buf)
+	fmt.Println(err, buf)
 }
