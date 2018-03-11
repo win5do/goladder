@@ -7,11 +7,10 @@ import (
 	"math/rand"
 	"io"
 	"bufio"
-	"net/http"
 	"bytes"
-	"io/ioutil"
-	"encoding/binary"
+	"net/http"
 	"strconv"
+	"encoding/binary"
 )
 
 const (
@@ -99,86 +98,7 @@ func handleClientConn(client net.Conn, config Config) {
 		}
 	} else {
 		// http
-		req, err := http.ReadRequest(clientRd)
-		if err != nil {
-			log.Println(err)
-			return
-		}
-
-		// host不含端口 可能为domain、ip
-		host := req.URL.Hostname()
-		hostType, err := hostType(host)
-		if err != nil {
-			log.Println(err)
-			return
-		}
-
-		var hostBuf []byte
-		if hostType == "domain" {
-			l := uint8(len(host))
-			hostBuf = []byte{3, l}
-			hostBuf = append(hostBuf, []byte(host)...)
-		} else if hostType == "ipv4" || hostType == "ipv6" {
-			ipAddr, err := net.ResolveIPAddr("ip", host)
-			if err != nil {
-				log.Println(err)
-				return
-			}
-			hostBuf = ipAddr.IP
-		}
-
-		portStr := req.URL.Port()
-		port := 80
-		// 默认端口为80 portStr == ""
-		if portStr != "" {
-			port, err = strconv.Atoi(portStr)
-			if err != nil {
-				log.Println(err)
-				return
-			}
-		}
-		portBuf := make([]byte, 2)
-		binary.BigEndian.PutUint16(portBuf, uint16(port))
-
-		socksBuf := []byte{5, 0, 0}
-		socksBuf = append(socksBuf, hostBuf...)
-		socksBuf = append(socksBuf, portBuf...)
-
-		/**
-			+----+-----+-------+------+----------+----------+
-			|VER | CMD |  RSV  | ATYP | DST.ADDR | DST.PORT |
-			+----+-----+-------+------+----------+----------+
-			| 1  |  1  | X'00' |  1   | Variable |    2     |
-			+----+-----+-------+------+----------+----------+
-		*/
-		log.Println("连接信息：", socksBuf)
-		_, err = sserver.encryptWrite(socksBuf)
-		if err != nil {
-			log.Println(err)
-			return
-		}
-
-		// 服务端回应 无用 不需要转发
-		replyBuf := make([]byte, 10)
-		_, err = sserver.decryptReadFull(replyBuf)
-		if err != nil {
-			log.Println(err)
-			return
-		}
-
-		// 将req加密转发
-		reqWt := bytes.NewBuffer([]byte{})
-		err = req.WriteProxy(reqWt)
-		if err != nil {
-			log.Println(err)
-			return
-		}
-		reqBuf, err := ioutil.ReadAll(reqWt)
-		if err != nil {
-			log.Println(err)
-			return
-		}
-		_, err = sserver.encryptWrite(reqBuf)
+		err := handleClientHttp(clientRd, sserver)
 		if err != nil {
 			log.Println(err)
 			return
@@ -191,16 +111,98 @@ func handleClientConn(client net.Conn, config Config) {
 		if err != nil {
 			sserver.Close()
 			client.Close()
-			log.Println(err)
+			if err != io.EOF {
+				log.Println(err)
+			}
 			return
 		}
 	}()
 
 	_, err = encryptCopy(sserver, client)
 	if err != nil {
-		log.Println(err)
+		if err != io.EOF {
+			log.Println(err)
+		}
 		return
 	}
+}
+
+// 转发http 把http包装成socks5协议
+func handleClientHttp(clientRd *bufio.Reader, sserver *sconn) (err error) {
+	req, err := http.ReadRequest(clientRd)
+	if err != nil {
+		return
+	}
+
+	// host不含端口 可能为domain、ip
+	host := req.URL.Hostname()
+	hostType, err := hostType(host)
+	if err != nil {
+		return
+	}
+
+	var hostBuf []byte
+	if hostType == "domain" {
+		l := uint8(len(host))
+		hostBuf = []byte{3, l}
+		hostBuf = append(hostBuf, []byte(host)...)
+	} else if hostType == "ipv4" || hostType == "ipv6" {
+		ipAddr, er := net.ResolveIPAddr("ip", host)
+		if er != nil {
+			err = er
+			return
+		}
+		hostBuf = ipAddr.IP
+	}
+
+	portStr := req.URL.Port()
+	port := 80
+	// 默认端口为80 portStr == ""
+	if portStr != "" {
+		port, err = strconv.Atoi(portStr)
+		if err != nil {
+			return
+		}
+	}
+	portBuf := make([]byte, 2)
+	binary.BigEndian.PutUint16(portBuf, uint16(port))
+
+	socksBuf := []byte{5, 1, 0}
+	socksBuf = append(socksBuf, hostBuf...)
+	socksBuf = append(socksBuf, portBuf...)
+
+	/**
+		+----+-----+-------+------+----------+----------+
+		|VER | CMD |  RSV  | ATYP | DST.ADDR | DST.PORT |
+		+----+-----+-------+------+----------+----------+
+		| 1  |  1  | X'00' |  1   | Variable |    2     |
+		+----+-----+-------+------+----------+----------+
+	*/
+	log.Println("连接信息：", socksBuf)
+	_, err = sserver.encryptWrite(socksBuf)
+	if err != nil {
+		return
+	}
+
+	// 服务端回应 无用 不需要转发
+	replyBuf := make([]byte, 10)
+	_, err = sserver.decryptReadFull(replyBuf)
+	if err != nil {
+		return
+	}
+
+	// 将req加密转发到服务端
+	reqWt := bytes.NewBuffer([]byte{})
+	err = req.WriteProxy(reqWt)
+	if err != nil {
+		return
+	}
+	_, err = sserver.encryptWrite(reqWt.Bytes())
+	if err != nil {
+		return
+	}
+
+	return
 }
 
 // 均衡负载 随机一个服务器连接

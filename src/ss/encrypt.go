@@ -56,24 +56,3 @@ func (scipher *scipher) encrypt(dst, src []byte) {
 func (scipher *scipher) decrypt(dst, src []byte) {
 	scipher.decStream.XORKeyStream(dst, src)
 }
-
-// delete
-func (scipher *scipher) initEncrypt() (err error) {
-	block, err := aes.NewCipher(scipher.key)
-	if err != nil {
-		return err
-	}
-
-	scipher.encStream = cipher.NewCFBEncrypter(block, scipher.iv)
-	return
-}
-
-func (scipher *scipher) initDecrypt() (err error) {
-	block, err := aes.NewCipher(scipher.key)
-	if err != nil {
-		return err
-	}
-
-	scipher.decStream = cipher.NewCFBEncrypter(block, scipher.iv)
-	return
-}

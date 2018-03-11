@@ -7,6 +7,7 @@ import (
 	"sync"
 	"crypto/aes"
 	"io"
+	"strconv"
 )
 
 var wg sync.WaitGroup
@@ -49,7 +50,6 @@ func handleServerConn(client net.Conn, oneServer ServerConfig) {
 		return
 	}
 
-	log.Println("debug:", iv)
 	sclient, err := newSconn(client, oneServer.Password, iv)
 	if err != nil {
 		log.Println(err)
@@ -71,8 +71,15 @@ func handleServerConn(client net.Conn, oneServer ServerConfig) {
 	}
 	log.Println("debug:", buf)
 
-	if buf[1] != 1 {
-		// 目前只支持 CONNECT
+	reqType := "" // 请求类型
+
+	if buf[1] == 1 {
+		// tcp
+		reqType = "tcp"
+	} else if buf[1] == 3 {
+		// udp
+		reqType = "udp"
+	} else {
 		return
 	}
 
@@ -103,39 +110,31 @@ func handleServerConn(client net.Conn, oneServer ServerConfig) {
 	buf = append(buf, remainBuf...)
 	log.Println("debug:", buf)
 
-	var ip []byte
+	var ip net.IP
+	var host string
+
 	if hostType == 1 {
 		// ipv4
 		ip = buf[4:8]
+		host = ip.String()
 	} else if hostType == 3 {
 		// domain
-		ipAddr, err := net.ResolveIPAddr("ip", string(buf[5:5+buf[4]]))
-		if err != nil {
-			return
-		}
-		ip = ipAddr.IP
+		host = string(buf[5 : 5+buf[4]])
 	} else if hostType == 4 {
 		// ipv6
 		ip = buf[4:20]
+		host = ip.String()
 	} else {
 		return
 	}
 
-	port := buf[len(buf)-2:]
-	dstAddr := &net.TCPAddr{
-		IP:   ip,
-		Port: int(binary.BigEndian.Uint16(port)),
-	}
+	portInt := int(binary.BigEndian.Uint16(buf[len(buf)-2:]))
+	port := strconv.Itoa(portInt)
+
+	dstAddr := host + ":" + port
 
 	// 连接真正的远程服务
-	dst, err := net.DialTimeout("tcp", dstAddr.String(), TIMEOUT)
-	if err != nil {
-		log.Println(err)
-		return
-	}
-	defer dst.Close()
-
-	// 响应客户端连接成功
+	// 响应客户端连接结果
 	/**
 		+----+-----+-------+------+----------+----------+
 		|VER | REP |  RSV  | ATYP | BND.ADDR | BND.PORT |
@@ -143,23 +142,52 @@ func handleServerConn(client net.Conn, oneServer ServerConfig) {
 		| 1  |  1  | X'00' |  1   | Variable |    2     |
 		+----+-----+-------+------+----------+----------+
 	*/
-	_, err = sclient.encryptWrite([]byte{5, 0, 0, 1, 0, 0, 0, 0, 0, 0})
-	if err != nil {
-		log.Println(err)
-		return
-	}
 
-	// 双向转发
-	go func() {
-		_, err := encryptCopy(sclient, dst)
+	if reqType == "tcp" {
+		dst, err := net.DialTimeout("tcp", dstAddr, TIMEOUT)
+		if err != nil {
+			log.Println(err)
+			// 连接远程服务器失败
+			_, err = sclient.encryptWrite([]byte{5, 4, 0, 1, 0, 0, 0, 0, 0, 0})
+			if err != nil {
+				log.Println(err)
+			}
+			return
+		}
+		defer dst.Close()
+
+		// 连接远程服务器成功
+		_, err = sclient.encryptWrite([]byte{5, 0, 0, 1, 0, 0, 0, 0, 0, 0})
 		if err != nil {
 			log.Println(err)
 			return
 		}
-	}()
-	_, err = decryptCopy(dst, sclient)
-	if err != nil {
-		log.Println(err)
-		return
+
+		// 双向转发
+		go func() {
+			_, err := encryptCopy(sclient, dst)
+			if err != nil {
+				dst.Close()
+				sclient.Close()
+				if err != io.EOF {
+					log.Println(err)
+				}
+				return
+			}
+		}()
+		_, err = decryptCopy(dst, sclient)
+		if err != nil && err != io.EOF {
+			if err != io.EOF {
+				log.Println(err)
+			}
+			return
+		}
+	} else if reqType == "udp" {
+
 	}
+}
+
+// udp转发
+func handleServerUdp() {
+
 }
