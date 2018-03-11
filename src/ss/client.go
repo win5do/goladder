@@ -45,11 +45,20 @@ func handleClientConn(client net.Conn, config Config) {
 	}
 	defer server.Close()
 
-	sserver := newSconn(server, oneServer.Password)
-	sclient := newSconn(client, oneServer.Password)
-
-	clientRd := bufio.NewReader(sclient)
+	clientRd := bufio.NewReader(client)
 	peekBuf, err := clientRd.Peek(2)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+
+	iv := randIv()
+	sserver, err := newSconn(server, oneServer.Password, iv)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	_, err = sserver.Write(iv)
 	if err != nil {
 		log.Println(err)
 		return
@@ -83,7 +92,7 @@ func handleClientConn(client net.Conn, config Config) {
 		*/
 
 		// 不需要验证
-		_, err = sclient.Write([]byte{5, 0})
+		_, err = client.Write([]byte{5, 0})
 		if err != nil {
 			log.Println(err)
 			return
@@ -178,14 +187,16 @@ func handleClientConn(client net.Conn, config Config) {
 
 	// 双向转发
 	go func() {
-		_, err = sserver.decryptCopy(sclient)
+		_, err = decryptCopy(client, sserver)
 		if err != nil {
+			sserver.Close()
+			client.Close()
 			log.Println(err)
 			return
 		}
 	}()
 
-	_, err = sclient.encryptCopy(sserver)
+	_, err = encryptCopy(sserver, client)
 	if err != nil {
 		log.Println(err)
 		return

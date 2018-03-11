@@ -5,6 +5,8 @@ import (
 	"net"
 	"log"
 	"sync"
+	"crypto/aes"
+	"io"
 )
 
 var wg sync.WaitGroup
@@ -31,15 +33,28 @@ func listenServer(oneServer ServerConfig) {
 		if err != nil {
 			log.Println(err)
 		} else {
-			sconn := newSconn(conn, oneServer.Password)
-			go handleServerConn(sconn, oneServer)
+			go handleServerConn(conn, oneServer)
 		}
 	}
 }
 
 // 处理服务端连接
-func handleServerConn(sserver sconn, oneServer ServerConfig) {
-	defer sserver.Close()
+func handleServerConn(client net.Conn, oneServer ServerConfig) {
+	defer client.Close()
+
+	iv := make([]byte, aes.BlockSize)
+	_, err := io.ReadFull(client, iv)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+
+	log.Println("debug:", iv)
+	sclient, err := newSconn(client, oneServer.Password, iv)
+	if err != nil {
+		log.Println(err)
+		return
+	}
 
 	/**
 		+----+-----+-------+------+----------+----------+
@@ -49,11 +64,13 @@ func handleServerConn(sserver sconn, oneServer ServerConfig) {
 		+----+-----+-------+------+----------+----------+
 	*/
 	buf := make([]byte, 5) // 先读5位 如果为域名 buf[4]为域名长度
-	_, err := sserver.decryptReadFull(buf)
+	_, err = sclient.decryptReadFull(buf)
 	if err != nil {
 		log.Println(err)
 		return
 	}
+	log.Println("debug:", buf)
+
 	if buf[1] != 1 {
 		// 目前只支持 CONNECT
 		return
@@ -78,7 +95,7 @@ func handleServerConn(sserver sconn, oneServer ServerConfig) {
 	log.Println("debug:", hostType, remain)
 	// 根据剩余长度读完剩余 合并到buf
 	remainBuf := make([]byte, remain)
-	_, err = sserver.decryptReadFull(remainBuf)
+	_, err = sclient.decryptReadFull(remainBuf)
 	if err != nil {
 		log.Println(err)
 		return
@@ -126,23 +143,21 @@ func handleServerConn(sserver sconn, oneServer ServerConfig) {
 		| 1  |  1  | X'00' |  1   | Variable |    2     |
 		+----+-----+-------+------+----------+----------+
 	*/
-	_, err = sserver.encryptWrite([]byte{5, 0, 0, 1, 0, 0, 0, 0, 0, 0})
+	_, err = sclient.encryptWrite([]byte{5, 0, 0, 1, 0, 0, 0, 0, 0, 0})
 	if err != nil {
 		log.Println(err)
 		return
 	}
 
-	sdst := newSconn(dst, oneServer.Password)
-
 	// 双向转发
 	go func() {
-		_, err := sdst.encryptCopy(sserver)
+		_, err := encryptCopy(sclient, dst)
 		if err != nil {
 			log.Println(err)
 			return
 		}
 	}()
-	_, err = sserver.decryptCopy(sdst)
+	_, err = decryptCopy(dst, sclient)
 	if err != nil {
 		log.Println(err)
 		return

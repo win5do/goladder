@@ -1,32 +1,40 @@
 package ss
 
 import (
-	"net"
 	"testing"
+	"net"
 )
 
 const (
 	ADDR = ":54321"
 )
 
-func makeConn(t *testing.T) (client, server sconn) {
+func makeConn(t *testing.T) (sclient, sserver *sconn) {
 	listen, err := net.Listen("tcp", ADDR)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer listen.Close()
 
-	conn, err := net.Dial("tcp", ADDR)
+	client, err := net.Dial("tcp", ADDR)
 	if err != nil {
 		t.Fatal(err)
 	}
-	client = newSconn(conn, KEY)
 
-	dst, err := listen.Accept()
+	iv := randIv()
+	sclient, err = newSconn(client, KEY, iv)
 	if err != nil {
 		t.Fatal(err)
 	}
-	server = newSconn(dst, KEY)
+
+	server, err := listen.Accept()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sserver, err = newSconn(server, KEY, iv)
+	if err != nil {
+		t.Fatal(err)
+	}
 	return
 }
 
@@ -61,24 +69,19 @@ func TestEncryptCopy(t *testing.T) {
 	}
 
 	go func() {
-		_, err = server.encryptCopy(server)
+		_, err = encryptCopy(server, server)
 		if err != nil {
 			t.Fatal(err)
 		}
 	}()
 
 	buf := make([]byte, 1024)
-	n, err := client.Read(buf)
+	n, err := client.decryptRead(buf)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	painBuf, err := decrypt(buf[:n], hashKey(KEY))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	str := string(painBuf)
+	str := string(buf[:n])
 	t.Log(str)
 	if str != SRC {
 		t.Error("数据不对")
@@ -96,7 +99,7 @@ func TestDecryptCopy(t *testing.T) {
 	}
 
 	go func() {
-		_, err = server.decryptCopy(server)
+		_, err = decryptCopy(server, server)
 		if err != nil {
 			t.Fatal(err)
 		}
