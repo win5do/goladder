@@ -146,12 +146,8 @@ func handleServerConn(client net.Conn, oneServer ServerConfig) {
 	if reqType == "tcp" {
 		dst, err := net.DialTimeout("tcp", dstAddr, TIMEOUT)
 		if err != nil {
-			log.Println(err)
 			// 连接远程服务器失败
-			_, err = sclient.encryptWrite([]byte{5, 4, 0, 1, 0, 0, 0, 0, 0, 0})
-			if err != nil {
-				log.Println(err)
-			}
+			log.Println(err)
 			return
 		}
 		defer dst.Close()
@@ -183,11 +179,9 @@ func handleServerConn(client net.Conn, oneServer ServerConfig) {
 			return
 		}
 	} else if reqType == "udp" {
-
+		// todo
 	}
 }
 
 // udp转发
-func handleServerUdp() {
-
-}
+func handleServerUdp() {}

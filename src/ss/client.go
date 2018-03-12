@@ -4,7 +4,6 @@ import (
 	"net"
 	"time"
 	"log"
-	"math/rand"
 	"io"
 	"bufio"
 	"bytes"
@@ -37,27 +36,17 @@ func ListenClient(config Config) {
 // 处理客户端连接
 func handleClientConn(client net.Conn, config Config) {
 	defer client.Close()
-	oneServer, server, err := balanceDial(config.Server)
+	serverConf, server, err := balanceDial(config.Server)
 	if err != nil {
 		log.Println(err)
 		return
 	}
 	defer server.Close()
+	var sserver *sconn
 
+	// 偷看前两位确定是socks5还是http
 	clientRd := bufio.NewReader(client)
 	peekBuf, err := clientRd.Peek(2)
-	if err != nil {
-		log.Println(err)
-		return
-	}
-
-	iv := randIv()
-	sserver, err := newSconn(server, oneServer.Password, iv)
-	if err != nil {
-		log.Println(err)
-		return
-	}
-	_, err = sserver.Write(iv)
 	if err != nil {
 		log.Println(err)
 		return
@@ -96,9 +85,29 @@ func handleClientConn(client net.Conn, config Config) {
 			log.Println(err)
 			return
 		}
+
+		// 和服务器建立sconn
+		sserver, err = initSconn(server, serverConf.Password)
+		if err != nil {
+			log.Println(err)
+			return
+		}
 	} else {
 		// http
-		err := handleClientHttp(clientRd, sserver)
+		req, err := http.ReadRequest(clientRd)
+		if err != nil {
+			log.Println(err)
+			return
+		}
+
+		// 和服务器建立sconn
+		sserver, err = initSconn(server, serverConf.Password)
+		if err != nil {
+			log.Println(err)
+			return
+		}
+
+		err = handleClientHttp(req, sserver)
 		if err != nil {
 			log.Println(err)
 			return
@@ -128,12 +137,7 @@ func handleClientConn(client net.Conn, config Config) {
 }
 
 // 转发http 把http包装成socks5协议
-func handleClientHttp(clientRd *bufio.Reader, sserver *sconn) (err error) {
-	req, err := http.ReadRequest(clientRd)
-	if err != nil {
-		return
-	}
-
+func handleClientHttp(req *http.Request, sserver *sconn) (err error) {
 	// host不含端口 可能为domain、ip
 	host := req.URL.Hostname()
 	hostType, err := hostType(host)
@@ -208,7 +212,7 @@ func handleClientHttp(clientRd *bufio.Reader, sserver *sconn) (err error) {
 // 均衡负载 随机一个服务器连接
 // 如果不可用启用备用服务器
 func balanceDial(config []ServerConfig) (oneServer ServerConfig, conn net.Conn, err error) {
-	randomServer, backup := weightRandom(config)
+	randomServer, backup := randomServer(config)
 	serverConn, err := net.DialTimeout("tcp", randomServer.Addr, TIMEOUT)
 	if err != nil && backup != (ServerConfig{}) {
 		backupConn, errb := net.DialTimeout("tcp", backup.Addr, TIMEOUT)
@@ -224,45 +228,34 @@ func balanceDial(config []ServerConfig) (oneServer ServerConfig, conn net.Conn, 
 	return
 }
 
-// 根据权重随机
-func weightRandom(w []ServerConfig) (oneServer ServerConfig, backup ServerConfig) {
-	l := len(w)
+// 随机服务器
+func randomServer(sarr []ServerConfig) (oneServer ServerConfig, backup ServerConfig) {
+	l := len(sarr)
 	if l <= 1 {
-		oneServer = w[0]
+		oneServer = sarr[0]
 		return
 	}
 
-	sum := 0
-	wint := []ServerConfig{}
+	var warr []Weight
 
-	for _, i := range w {
-		switch q := i.Weight.(type) {
+	for k, i := range sarr {
+		switch t := i.Weight.(type) {
 		case string:
-			if q == "backup" {
+			if t == "backup" {
 				backup = i
 			}
 		case int:
-			if q > 0 {
-				sum += q
-				wint = append(wint, i)
+			if t > 0 {
+				w := Weight{
+					k,
+					t,
+				}
+				warr = append(warr, w)
 			}
 		}
 	}
 
-	seed := rand.NewSource(time.Now().UnixNano())
-	rd := rand.New(seed)
-	r := rd.Float64()
-	r *= float64(sum)
-
-	scale := 0
-	for _, i := range wint {
-		scale += i.Weight.(int)
-		if r < float64(scale) {
-			oneServer = i
-			return
-		}
-	}
-
-	oneServer = w[len(w)-1]
+	r := weightRandom(warr) // 返回下标
+	oneServer = sarr[r]
 	return
 }

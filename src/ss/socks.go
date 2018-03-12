@@ -110,3 +110,19 @@ func decryptCopy(dst net.Conn, src *sconn) (n int64, err error) {
 
 	return n, err
 }
+
+// 和服务器建立sconn
+func initSconn(conn net.Conn, key string) (sconn *sconn, err error) {
+	// 随机一个iv 创建加密器
+	iv := randIv()
+	sconn, err = newSconn(conn, key, iv)
+	if err != nil {
+		return
+	}
+	// 先把iv发给服务器
+	_, err = sconn.Write(iv)
+	if err != nil {
+		return
+	}
+	return
+}
