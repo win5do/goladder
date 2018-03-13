@@ -1,13 +1,11 @@
 language: go
 
 go:
-  - 1.9.x
-  - 1.10.x
   - tip
 
 go_import_path: goladder
 
 script:
   - go test ./...
-  - go build src/local
-  - go build src/server
+  - go build src/local/local.go
+  - go build src/server/server.go

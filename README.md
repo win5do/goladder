@@ -1,5 +1,7 @@
 # goladder
 
+[![Build Status](https://travis-ci.org/win5do/goladder.svg?branch=master)](https://travis-ci.org/win5do/goladder)
+
 重复造轮子，用go实现的ss程序，用于科学上网
 
 本项目仅供技术学习，请勿用作其他用途
