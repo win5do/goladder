@@ -3,7 +3,7 @@ package main
 import "goladder/src/ss"
 
 func main() {
-	config := ss.CliFlag("./client_config.json")
+	config := ss.CliFlag("./local_config.json")
 	configStruct := ss.ParseConfigFile(config)
-	ss.ListenClient(configStruct)
+	ss.ListenLocal(configStruct)
 }

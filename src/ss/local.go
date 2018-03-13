@@ -16,8 +16,8 @@ const (
 	TIMEOUT = 3 * time.Second
 )
 
-func ListenClient(config Config) {
-	listener, err := net.Listen("tcp", config.Client)
+func ListenLocal(config Config) {
+	listener, err := net.Listen("tcp", config.Local)
 	if err != nil {
 		log.Fatal(err)
 	}

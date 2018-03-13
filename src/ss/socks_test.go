@@ -69,10 +69,7 @@ func TestEncryptCopy(t *testing.T) {
 	}
 
 	go func() {
-		_, err = encryptCopy(server, server)
-		if err != nil {
-			t.Fatal(err)
-		}
+		encryptCopy(server, server)
 	}()
 
 	buf := make([]byte, 1024)
@@ -99,10 +96,7 @@ func TestDecryptCopy(t *testing.T) {
 	}
 
 	go func() {
-		_, err = decryptCopy(server, server)
-		if err != nil {
-			t.Fatal(err)
-		}
+		decryptCopy(server, server)
 	}()
 
 	buf := make([]byte, 1024)

@@ -8,7 +8,7 @@ import (
 )
 
 type Config struct {
-	Client string
+	Local  string
 	Server []ServerConfig
 }
 

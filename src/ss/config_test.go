@@ -6,7 +6,7 @@ import (
 )
 
 const (
-	FILE1 = "../../config_example/client_config.json"
+	FILE1 = "../../config_example/local_config.json"
 	FILE2 = "../../config_example/server_config.json"
 )
 
