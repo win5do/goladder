@@ -1,16 +1,16 @@
 package ss
 
 import (
-	"net"
 	"io"
+	"net"
 )
 
-type sconn struct {
+type Sconn struct {
 	net.Conn
 	*scipher
 }
 
-func newSconn(conn net.Conn, key string, iv []byte) (*sconn, error) {
+func newSconn(conn net.Conn, key string, iv []byte) (*Sconn, error) {
 	k := hashKey(key)
 
 	scipher, err := NewScipher(k, iv)
@@ -18,33 +18,33 @@ func newSconn(conn net.Conn, key string, iv []byte) (*sconn, error) {
 		return nil, err
 	}
 
-	return &sconn{
+	return &Sconn{
 		conn,
 		scipher,
 	}, nil
 }
 
 // 加密写入
-func (sconn *sconn) encryptWrite(b []byte) (int, error) {
+func (sconn *Sconn) EncryptWrite(b []byte) (int, error) {
 	sconn.encrypt(b, b)
 	return sconn.Write(b)
 }
 
 // 解密读入
-func (sconn *sconn) decryptRead(b []byte) (n int, err error) {
+func (sconn *Sconn) DecryptRead(b []byte) (n int, err error) {
 	n, err = sconn.Read(b)
 	sconn.decrypt(b[:n], b[:n])
 	return
 }
 
 // 最少读 same as io.ReadAtLeast
-func (sconn *sconn) decryptReadAtLeast(b []byte, min int) (n int, err error) {
+func (sconn *Sconn) DecryptReadAtLeast(b []byte, min int) (n int, err error) {
 	if len(b) < min {
 		return 0, io.ErrShortBuffer
 	}
 
 	for n < min {
-		add, er := sconn.decryptRead(b)
+		add, er := sconn.DecryptRead(b)
 		n += add
 		if er != nil {
 			err = er
@@ -55,12 +55,12 @@ func (sconn *sconn) decryptReadAtLeast(b []byte, min int) (n int, err error) {
 }
 
 // 满读 same as io.ReadFull
-func (sconn *sconn) decryptReadFull(painBuf []byte) (int, error) {
-	return sconn.decryptReadAtLeast(painBuf, len(painBuf))
+func (sconn *Sconn) DecryptReadFull(painBuf []byte) (int, error) {
+	return sconn.DecryptReadAtLeast(painBuf, len(painBuf))
 }
 
 // 加密复制
-func encryptCopy(dst *sconn, src net.Conn) (n int64, err error) {
+func EncryptCopy(dst *Sconn, src net.Conn) (n int64, err error) {
 	buf := make([]byte, 32*1024)
 	for {
 		// 读取
@@ -71,7 +71,7 @@ func encryptCopy(dst *sconn, src net.Conn) (n int64, err error) {
 
 		if nr > 0 {
 			// 写入
-			nw, err := dst.encryptWrite(buf[:nr])
+			nw, err := dst.EncryptWrite(buf[:nr])
 			if err != nil {
 				return n, err
 			}
@@ -86,11 +86,11 @@ func encryptCopy(dst *sconn, src net.Conn) (n int64, err error) {
 }
 
 // 解密复制
-func decryptCopy(dst net.Conn, src *sconn) (n int64, err error) {
+func DecryptCopy(dst net.Conn, src *Sconn) (n int64, err error) {
 	buf := make([]byte, 32*1024)
 	for {
 		// 读取
-		nr, err := src.decryptRead(buf)
+		nr, err := src.DecryptRead(buf)
 		if err != nil {
 			return n, err
 		}
@@ -112,7 +112,7 @@ func decryptCopy(dst net.Conn, src *sconn) (n int64, err error) {
 }
 
 // 和服务器建立sconn
-func initSconn(conn net.Conn, key string) (sconn *sconn, err error) {
+func InitSconn(conn net.Conn, key string) (sconn *Sconn, err error) {
 	// 随机一个iv 创建加密器
 	iv := randIv()
 	sconn, err = newSconn(conn, key, iv)

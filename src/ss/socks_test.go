@@ -1,15 +1,15 @@
 package ss
 
 import (
-	"testing"
 	"net"
+	"testing"
 )
 
 const (
 	ADDR = ":54321"
 )
 
-func makeConn(t *testing.T) (sclient, sserver *sconn) {
+func makeConn(t *testing.T) (sclient, sserver *Sconn) {
 	listen, err := net.Listen("tcp", ADDR)
 	if err != nil {
 		t.Fatal(err)
@@ -43,13 +43,13 @@ func TestReadAndWrite(t *testing.T) {
 	defer client.Close()
 	defer server.Close()
 
-	_, err := client.encryptWrite([]byte(SRC))
+	_, err := client.EncryptWrite([]byte(SRC))
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	buf := make([]byte, len(SRC))
-	n, err := server.decryptRead(buf)
+	n, err := server.DecryptRead(buf)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,11 +69,11 @@ func TestEncryptCopy(t *testing.T) {
 	}
 
 	go func() {
-		encryptCopy(server, server)
+		EncryptCopy(server, server)
 	}()
 
 	buf := make([]byte, 1024)
-	n, err := client.decryptRead(buf)
+	n, err := client.DecryptRead(buf)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,13 +90,13 @@ func TestDecryptCopy(t *testing.T) {
 	defer client.Close()
 	defer server.Close()
 
-	_, err := client.encryptWrite([]byte(SRC))
+	_, err := client.EncryptWrite([]byte(SRC))
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	go func() {
-		decryptCopy(server, server)
+		DecryptCopy(server, server)
 	}()
 
 	buf := make([]byte, 1024)

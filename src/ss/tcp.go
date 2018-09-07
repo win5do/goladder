@@ -1,27 +1,15 @@
 package ss
 
 import (
-	"encoding/binary"
-	"net"
-	"log"
-	"sync"
 	"crypto/aes"
+	"encoding/binary"
 	"io"
+	"log"
+	"net"
 	"strconv"
 )
 
-var wg sync.WaitGroup
-
-func ListenServer(config Config) {
-	for _, i := range config.Server {
-		wg.Add(1)
-		go listenServer(i)
-	}
-	wg.Wait()
-}
-
-func listenServer(oneServer ServerConfig) {
-	defer wg.Done()
+func ListenTcp(oneServer ServerConfig) {
 	listener, err := net.Listen("tcp", oneServer.Addr)
 	if err != nil {
 		log.Println(err)
@@ -34,13 +22,13 @@ func listenServer(oneServer ServerConfig) {
 		if err != nil {
 			log.Println(err)
 		} else {
-			go handleServerConn(conn, oneServer)
+			go handleTcpConn(conn, oneServer)
 		}
 	}
 }
 
-// 处理服务端连接
-func handleServerConn(client net.Conn, oneServer ServerConfig) {
+// 处理tcp连接
+func handleTcpConn(client net.Conn, oneServer ServerConfig) {
 	defer client.Close()
 
 	iv := make([]byte, aes.BlockSize)
@@ -57,14 +45,14 @@ func handleServerConn(client net.Conn, oneServer ServerConfig) {
 	}
 
 	/**
-		+----+-----+-------+------+----------+----------+
-		|VER | CMD |  RSV  | ATYP | DST.ADDR | DST.PORT |
-		+----+-----+-------+------+----------+----------+
-		| 1  |  1  | X'00' |  1   | Variable |    2     |
-		+----+-----+-------+------+----------+----------+
+	+----+-----+-------+------+----------+----------+
+	|VER | CMD |  RSV  | ATYP | DST.ADDR | DST.PORT |
+	+----+-----+-------+------+----------+----------+
+	| 1  |  1  | X'00' |  1   | Variable |    2     |
+	+----+-----+-------+------+----------+----------+
 	*/
 	buf := make([]byte, 5) // 先读5位 如果为域名 buf[4]为域名长度
-	_, err = sclient.decryptReadFull(buf)
+	_, err = sclient.DecryptReadFull(buf)
 	if err != nil {
 		log.Println(err)
 		return
@@ -102,7 +90,7 @@ func handleServerConn(client net.Conn, oneServer ServerConfig) {
 	log.Println("debug:", hostType, remain)
 	// 根据剩余长度读完剩余 合并到buf
 	remainBuf := make([]byte, remain)
-	_, err = sclient.decryptReadFull(remainBuf)
+	_, err = sclient.DecryptReadFull(remainBuf)
 	if err != nil {
 		log.Println(err)
 		return
@@ -136,11 +124,11 @@ func handleServerConn(client net.Conn, oneServer ServerConfig) {
 	// 连接真正的远程服务
 	// 响应客户端连接结果
 	/**
-		+----+-----+-------+------+----------+----------+
-		|VER | REP |  RSV  | ATYP | BND.ADDR | BND.PORT |
-		+----+-----+-------+------+----------+----------+
-		| 1  |  1  | X'00' |  1   | Variable |    2     |
-		+----+-----+-------+------+----------+----------+
+	+----+-----+-------+------+----------+----------+
+	|VER | REP |  RSV  | ATYP | BND.ADDR | BND.PORT |
+	+----+-----+-------+------+----------+----------+
+	| 1  |  1  | X'00' |  1   | Variable |    2     |
+	+----+-----+-------+------+----------+----------+
 	*/
 
 	if reqType == "tcp" {
@@ -153,7 +141,7 @@ func handleServerConn(client net.Conn, oneServer ServerConfig) {
 		defer dst.Close()
 
 		// 连接远程服务器成功
-		_, err = sclient.encryptWrite([]byte{5, 0, 0, 1, 0, 0, 0, 0, 0, 0})
+		_, err = sclient.EncryptWrite([]byte{5, 0, 0, 1, 0, 0, 0, 0, 0, 0})
 		if err != nil {
 			log.Println(err)
 			return
@@ -161,7 +149,7 @@ func handleServerConn(client net.Conn, oneServer ServerConfig) {
 
 		// 双向转发
 		go func() {
-			_, err := encryptCopy(sclient, dst)
+			_, err := EncryptCopy(sclient, dst)
 			if err != nil {
 				dst.Close()
 				sclient.Close()
@@ -171,7 +159,7 @@ func handleServerConn(client net.Conn, oneServer ServerConfig) {
 				return
 			}
 		}()
-		_, err = decryptCopy(dst, sclient)
+		_, err = DecryptCopy(dst, sclient)
 		if err != nil && err != io.EOF {
 			if err != io.EOF {
 				log.Println(err)
@@ -179,9 +167,10 @@ func handleServerConn(client net.Conn, oneServer ServerConfig) {
 			return
 		}
 	} else if reqType == "udp" {
-		// todo
+		_, err = sclient.EncryptWrite([]byte{5, 0, 0, 1, 0, 0, 0, 0, 0, 0})
+		if err != nil {
+			log.Println(err)
+			return
+		}
 	}
 }
-
-// udp转发
-func handleServerUdp() {}

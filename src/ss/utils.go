@@ -1,15 +1,15 @@
 package ss
 
 import (
-	"regexp"
 	"errors"
-	"time"
 	"fmt"
 	"math/rand"
+	"regexp"
+	"time"
 )
 
 // 判断host的类型 host不包含端口
-func hostType(host string) (string, error) {
+func HostType(host string) (string, error) {
 	regDomain := regexp.MustCompile(`^[a-zA-Z0-9][-a-zA-Z0-9]{0,62}(\.[a-zA-Z0-9][-a-zA-Z0-9]{0,62})+\.?$`)
 	regIpv4 := regexp.MustCompile(`^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$`)
 	regIpv6 := regexp.MustCompile(`^([\da-fA-F]{1,4}:){7}[\da-fA-F]{1,4}$`)
@@ -26,25 +26,25 @@ func hostType(host string) (string, error) {
 }
 
 type Weight struct {
-	value  int
-	weight int
+	Value  int
+	Weight int
 }
 
 // 根据权重随机
-func weightRandom(w []Weight) int {
+func WeightRandom(w []Weight) int {
 	l := len(w)
 	if l < 1 {
 		return 0
 	}
 
 	if l == 1 {
-		return w[0].value
+		return w[0].Value
 	}
 
 	sum := 0
 
 	for _, i := range w {
-		sum += i.weight
+		sum += i.Weight
 	}
 
 	seed := rand.NewSource(time.Now().UnixNano())
@@ -55,10 +55,10 @@ func weightRandom(w []Weight) int {
 
 	scale := 0
 	for _, i := range w {
-		scale += i.weight
+		scale += i.Weight
 		if r < float64(scale) {
-			return i.value
+			return i.Value
 		}
 	}
-	return w[len(w)-1].value
+	return w[len(w)-1].Value
 }

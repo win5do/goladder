@@ -2,18 +2,19 @@ package ss
 
 import (
 	"encoding/json"
-	"log"
-	"io/ioutil"
 	"flag"
+	"io/ioutil"
+	"log"
 )
 
 type Config struct {
 	Local  string
 	Server []ServerConfig
+	Udp    bool
 }
 
 type ServerConfig struct {
-	Addr      string
+	Addr     string
 	Password string
 	Weight   interface{}
 }
