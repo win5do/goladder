@@ -41,6 +41,8 @@ func ParseConfigFile(filePath string) Config {
 			servers[k].Weight = 100
 		}
 	}
+
+	Conf = config
 	return config
 }
 

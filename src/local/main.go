@@ -4,41 +4,78 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/binary"
-	"goladder/src/ss"
 	"io"
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"strconv"
+
+	"goladder/src/ss"
 )
 
 func main() {
 	config := ss.CliFlag("./local_config.json")
-	configStruct := ss.ParseConfigFile(config)
-	ListenLocal(configStruct)
+	ss.ParseConfigFile(config)
+	ListenLocal()
 }
 
-func ListenLocal(config ss.Config) {
-	listener, err := net.Listen("tcp", config.Local)
+func ListenLocal() {
+
+	go listenTcp()
+
+	if ss.Conf.Udp {
+		go listenUdp()
+	}
+
+	ss.WaitSignal()
+}
+
+func listenTcp() {
+	listener, err := net.Listen("tcp", ss.Conf.Local)
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer listener.Close()
+	defer func() {
+		listener.Close()
+		os.Exit(0)
+	}()
 
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
 			log.Println(err)
 		} else {
-			go handleClientConn(conn, config)
+			go handleClientConn(conn)
+		}
+	}
+}
+
+func listenUdp() {
+	packetConn, err := net.ListenPacket("udp", ss.Conf.Local)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer func() {
+		packetConn.Close()
+		os.Exit(0)
+	}()
+
+	for {
+		buf := make([]byte, 4096)
+		_, addr, err := packetConn.ReadFrom(buf)
+		if err != nil {
+			log.Println(err)
+		} else {
+			go handleClientUdp(packetConn, addr, buf)
 		}
 	}
 }
 
 // 处理客户端tcp连接
-func handleClientConn(client net.Conn, config ss.Config) {
+func handleClientConn(client net.Conn) {
 	defer client.Close()
-	serverConf, server, err := balanceDial(config.Server)
+	serverConf, server, err := ss.BalanceDial(ss.Conf.Server)
 	if err != nil {
 		log.Println(err)
 		return
@@ -94,7 +131,7 @@ func handleClientConn(client net.Conn, config ss.Config) {
 			log.Println(err)
 			return
 		}
-	} else {
+	} else if ss.IsHttp(clientRd) {
 		// http
 		req, err := http.ReadRequest(clientRd)
 		if err != nil {
@@ -114,6 +151,8 @@ func handleClientConn(client net.Conn, config ss.Config) {
 			log.Println(err)
 			return
 		}
+	} else {
+		return
 	}
 
 	// 双向转发
@@ -136,6 +175,10 @@ func handleClientConn(client net.Conn, config ss.Config) {
 		}
 		return
 	}
+}
+
+func handleClientUdp(packetConn net.PacketConn, addr net.Addr, buf []byte) {
+
 }
 
 // 转发http 把http包装成socks5协议
@@ -208,56 +251,5 @@ func handleClientHttp(req *http.Request, sserver *ss.Sconn) (err error) {
 		return
 	}
 
-	return
-}
-
-// 均衡负载 随机一个服务器连接
-// 如果不可用启用备用服务器
-func balanceDial(config []ss.ServerConfig) (oneServer ss.ServerConfig, conn net.Conn, err error) {
-	randomServer, backup := randomServer(config)
-	serverConn, err := net.DialTimeout("tcp", randomServer.Addr, ss.TIMEOUT)
-	if err != nil && backup != (ss.ServerConfig{}) {
-		backupConn, errb := net.DialTimeout("tcp", backup.Addr, ss.TIMEOUT)
-		if errb != nil {
-			err = errb
-		}
-		oneServer = backup
-		conn = backupConn
-	} else {
-		oneServer = randomServer
-		conn = serverConn
-	}
-	return
-}
-
-// 随机服务器
-func randomServer(sarr []ss.ServerConfig) (oneServer ss.ServerConfig, backup ss.ServerConfig) {
-	l := len(sarr)
-	if l <= 1 {
-		oneServer = sarr[0]
-		return
-	}
-
-	var warr []ss.Weight
-
-	for k, i := range sarr {
-		switch t := i.Weight.(type) {
-		case string:
-			if t == "backup" {
-				backup = i
-			}
-		case int:
-			if t > 0 {
-				w := ss.Weight{
-					k,
-					t,
-				}
-				warr = append(warr, w)
-			}
-		}
-	}
-
-	r := ss.WeightRandom(warr) // 返回下标
-	oneServer = sarr[r]
 	return
 }

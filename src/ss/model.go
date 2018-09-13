@@ -9,5 +9,5 @@ const (
 )
 
 var (
-	UpiFlag = false
+	Conf Config
 )
