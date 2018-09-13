@@ -1,1 +1,14 @@
-../../config_example/local_config.json
+{
+    "local": ":8888",
+    "udp": true,
+    "server": [
+        {
+            "addr": "1.2.3.4:9998",
+            "password": "123456"
+        },
+        {
+            "addr": "1.2.3.4:9999",
+            "password": "123456"
+        }
+    ]
+}
