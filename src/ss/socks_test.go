@@ -22,7 +22,7 @@ func makeConn(t *testing.T) (sclient, sserver *Sconn) {
 	}
 
 	iv := randIv()
-	sclient, err = newSconn(client, KEY, iv)
+	sclient, err = NewSconn(client, KEY, iv)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,7 +31,7 @@ func makeConn(t *testing.T) (sclient, sserver *Sconn) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sserver, err = newSconn(server, KEY, iv)
+	sserver, err = NewSconn(server, KEY, iv)
 	if err != nil {
 		t.Fatal(err)
 	}

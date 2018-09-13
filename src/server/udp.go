@@ -1,11 +1,13 @@
-package ss
+package server
 
 import (
 	"log"
 	"net"
+
+	"goladder/src/ss"
 )
 
-func ListenUdp(oneServer ServerConfig) {
+func listenUdp(oneServer ss.ServerConfig) {
 	pkConn, err := net.ListenPacket("udp", oneServer.Addr)
 	if err != nil {
 		log.Println(err)

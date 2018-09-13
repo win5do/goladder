@@ -1,4 +1,4 @@
-package ss
+package server
 
 import (
 	"crypto/aes"
@@ -7,9 +7,21 @@ import (
 	"log"
 	"net"
 	"strconv"
+
+	"goladder/src/ss"
 )
 
-func ListenTcp(oneServer ServerConfig) {
+func ListenServer() {
+	for _, i := range ss.Conf.Server {
+		go listenTcp(i)
+		if ss.Conf.Udp {
+			go listenUdp(i)
+		}
+	}
+	ss.WaitSignal()
+}
+
+func listenTcp(oneServer ss.ServerConfig) {
 	listener, err := net.Listen("tcp", oneServer.Addr)
 	if err != nil {
 		log.Println(err)
@@ -28,7 +40,7 @@ func ListenTcp(oneServer ServerConfig) {
 }
 
 // 处理tcp连接
-func handleTcpConn(client net.Conn, oneServer ServerConfig) {
+func handleTcpConn(client net.Conn, oneServer ss.ServerConfig) {
 	defer client.Close()
 
 	iv := make([]byte, aes.BlockSize)
@@ -38,7 +50,7 @@ func handleTcpConn(client net.Conn, oneServer ServerConfig) {
 		return
 	}
 
-	sclient, err := newSconn(client, oneServer.Password, iv)
+	sclient, err := ss.NewSconn(client, oneServer.Password, iv)
 	if err != nil {
 		log.Println(err)
 		return
@@ -132,7 +144,7 @@ func handleTcpConn(client net.Conn, oneServer ServerConfig) {
 	*/
 
 	if reqType == "tcp" {
-		dst, err := net.DialTimeout("tcp", dstAddr, TIMEOUT)
+		dst, err := net.DialTimeout("tcp", dstAddr, ss.TIMEOUT)
 		if err != nil {
 			// 连接远程服务器失败
 			log.Println(err)
@@ -149,7 +161,7 @@ func handleTcpConn(client net.Conn, oneServer ServerConfig) {
 
 		// 双向转发
 		go func() {
-			_, err := EncryptCopy(sclient, dst)
+			_, err := ss.EncryptCopy(sclient, dst)
 			if err != nil {
 				dst.Close()
 				sclient.Close()
@@ -159,7 +171,7 @@ func handleTcpConn(client net.Conn, oneServer ServerConfig) {
 				return
 			}
 		}()
-		_, err = DecryptCopy(dst, sclient)
+		_, err = ss.DecryptCopy(dst, sclient)
 		if err != nil && err != io.EOF {
 			if err != io.EOF {
 				log.Println(err)

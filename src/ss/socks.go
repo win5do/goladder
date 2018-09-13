@@ -10,7 +10,7 @@ type Sconn struct {
 	*scipher
 }
 
-func newSconn(conn net.Conn, key string, iv []byte) (*Sconn, error) {
+func NewSconn(conn net.Conn, key string, iv []byte) (*Sconn, error) {
 	k := hashKey(key)
 
 	scipher, err := NewScipher(k, iv)
@@ -115,7 +115,7 @@ func DecryptCopy(dst net.Conn, src *Sconn) (n int64, err error) {
 func InitSconn(conn net.Conn, key string) (sconn *Sconn, err error) {
 	// 随机一个iv 创建加密器
 	iv := randIv()
-	sconn, err = newSconn(conn, key, iv)
+	sconn, err = NewSconn(conn, key, iv)
 	if err != nil {
 		return
 	}
