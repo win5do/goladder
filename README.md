@@ -29,7 +29,7 @@ server -config=./server_config.json
 ```
 
 # 配置
-配置示例见config_example文件夹
+配置示例见cmd/local及cmd/server下json配置文件
 
 local端配置
 ```

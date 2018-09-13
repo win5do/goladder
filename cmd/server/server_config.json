@@ -1,4 +1,5 @@
 {
+  "udp": true,
   "server": [
     {
       "addr": ":9998",
