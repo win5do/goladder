@@ -6,8 +6,8 @@ import (
 )
 
 const (
-	FILE1 = "../../config_example/local_config.json"
-	FILE2 = "../../config_example/server_config.json"
+	FILE1 = "../../cmd/local/local_config.json"
+	FILE2 = "../../cmd/server/server_config.json"
 )
 
 func TestParseConfigFile(t *testing.T) {
