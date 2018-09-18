@@ -24,6 +24,23 @@ func NewSconn(conn net.Conn, key string, iv []byte) (*Sconn, error) {
 	}, nil
 }
 
+
+// 和服务器建立sconn
+func InitSconn(conn net.Conn, key string) (sconn *Sconn, err error) {
+	// 随机一个iv 创建加密器
+	iv := randIv()
+	sconn, err = NewSconn(conn, key, iv)
+	if err != nil {
+		return
+	}
+	// 先把iv发给服务器
+	_, err = sconn.Write(iv)
+	if err != nil {
+		return
+	}
+	return
+}
+
 // 加密写入
 func (sconn *Sconn) EncryptWrite(b []byte) (int, error) {
 	sconn.encrypt(b, b)
@@ -109,20 +126,4 @@ func DecryptCopy(dst net.Conn, src *Sconn) (n int64, err error) {
 	}
 
 	return n, err
-}
-
-// 和服务器建立sconn
-func InitSconn(conn net.Conn, key string) (sconn *Sconn, err error) {
-	// 随机一个iv 创建加密器
-	iv := randIv()
-	sconn, err = NewSconn(conn, key, iv)
-	if err != nil {
-		return
-	}
-	// 先把iv发给服务器
-	_, err = sconn.Write(iv)
-	if err != nil {
-		return
-	}
-	return
 }

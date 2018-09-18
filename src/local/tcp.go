@@ -95,11 +95,38 @@ func handleClientConn(client net.Conn) {
 			return
 		}
 
-		// 和服务器建立ss.Sconn
-		sserver, err = ss.InitSconn(server, serverConf.Password)
+		/**
+			+----+-----+-------+------+----------+----------+
+			|VER | CMD |  RSV  | ATYP | DST.ADDR | DST.PORT |
+			+----+-----+-------+------+----------+----------+
+			| 1  |  1  | X'00' |  1   | Variable |    2     |
+			+----+-----+-------+------+----------+----------+
+		*/
+
+		buf = make([]byte, 3) // 先读3位
+		_, err = io.ReadFull(client, buf)
 		if err != nil {
 			log.Println(err)
 			return
+		}
+		log.Printf("read buf = %v", buf)
+
+		// 请求类型 tcp or udp
+		reqType := ss.ParseSocksReqType(buf)
+
+		_, err = client.Write([]byte{5, 0, 0, 1, 0, 0, 0, 0, 0, 0})
+		if err != nil {
+			log.Println(err)
+			return
+		}
+
+		if reqType == "tcp" {
+			// 和服务器建立ss.Sconn
+			sserver, err = ss.InitSconn(server, serverConf.Password)
+			if err != nil {
+				log.Println(err)
+				return
+			}
 		}
 	} else if ss.IsHttp(clientRd) {
 		// http

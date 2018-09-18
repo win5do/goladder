@@ -25,13 +25,19 @@ func handleClientHttp(req *http.Request, sserver *ss.Sconn) (err error) {
 		l := uint8(len(host))
 		hostBuf = []byte{3, l}
 		hostBuf = append(hostBuf, []byte(host)...)
-	} else if hostType == "ipv4" || hostType == "ipv6" {
+	} else {
+		if hostType == "ipv4" {
+			hostBuf = []byte{1}
+		} else if hostType == "ipv6" {
+			hostBuf = []byte{4}
+		}
+
 		ipAddr, er := net.ResolveIPAddr("ip", host)
 		if er != nil {
 			err = er
 			return
 		}
-		hostBuf = ipAddr.IP
+		hostBuf = append(hostBuf, []byte(ipAddr.IP)...)
 	}
 
 	portStr := req.URL.Port()
@@ -46,7 +52,7 @@ func handleClientHttp(req *http.Request, sserver *ss.Sconn) (err error) {
 	portBuf := make([]byte, 2)
 	binary.BigEndian.PutUint16(portBuf, uint16(port))
 
-	socksBuf := []byte{5, 1, 0}
+	var socksBuf []byte
 	socksBuf = append(socksBuf, hostBuf...)
 	socksBuf = append(socksBuf, portBuf...)
 
@@ -81,5 +87,5 @@ func handleClientHttp(req *http.Request, sserver *ss.Sconn) (err error) {
 		return
 	}
 
-	return
+	return nil
 }

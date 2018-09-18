@@ -2,11 +2,9 @@ package server
 
 import (
 	"crypto/aes"
-	"encoding/binary"
 	"io"
 	"log"
 	"net"
-	"strconv"
 
 	"goladder/src/ss"
 )
@@ -57,49 +55,23 @@ func handleTcpConn(client net.Conn, oneServer ss.ServerConfig) {
 	}
 
 	/**
-	+----+-----+-------+------+----------+----------+
-	|VER | CMD |  RSV  | ATYP | DST.ADDR | DST.PORT |
-	+----+-----+-------+------+----------+----------+
-	| 1  |  1  | X'00' |  1   | Variable |    2     |
-	+----+-----+-------+------+----------+----------+
+		+------+----------+----------+
+		| ATYP | DST.ADDR | DST.PORT |
+		+------+----------+----------+
+		|  1   | Variable |    2     |
+		+------+----------+----------+
 	*/
-	buf := make([]byte, 5) // 先读5位 如果为域名 buf[4]为域名长度
+
+	buf := make([]byte, 2) // 先读2位 如果为域名 buf[1]为域名长度
 	_, err = sclient.DecryptReadFull(buf)
 	if err != nil {
 		log.Println(err)
 		return
 	}
-	log.Println("debug:", buf)
 
-	reqType := "" // 请求类型
+	hostType := buf[0]
+	remain := ss.ParseSocksRemain(buf, hostType)
 
-	if buf[1] == 1 {
-		// tcp
-		reqType = "tcp"
-	} else if buf[1] == 3 {
-		// udp
-		reqType = "udp"
-	} else {
-		return
-	}
-
-	// aType 代表请求的远程服务器地址类型,值长度1个字节,有三种类型
-	hostType := buf[3]
-	var remain int // 代理信息剩余长度
-	if hostType == 1 {
-		// ipv4
-		remain = 5 // 4+2-1
-	} else if hostType == 3 {
-		// domain
-		remain = int(buf[4]) + 2
-	} else if hostType == 4 {
-		// ipv6
-		remain = 17 // 16+2-1
-	} else {
-		return
-	}
-
-	log.Println("debug:", hostType, remain)
 	// 根据剩余长度读完剩余 合并到buf
 	remainBuf := make([]byte, remain)
 	_, err = sclient.DecryptReadFull(remainBuf)
@@ -108,81 +80,35 @@ func handleTcpConn(client net.Conn, oneServer ss.ServerConfig) {
 		return
 	}
 	buf = append(buf, remainBuf...)
-	log.Println("debug:", buf)
+	log.Printf("read buf = %v", buf)
 
-	var ip net.IP
-	var host string
+	dstAddr := ss.ParseSocksAddr(buf, hostType)
 
-	if hostType == 1 {
-		// ipv4
-		ip = buf[4:8]
-		host = ip.String()
-	} else if hostType == 3 {
-		// domain
-		host = string(buf[5 : 5+buf[4]])
-	} else if hostType == 4 {
-		// ipv6
-		ip = buf[4:20]
-		host = ip.String()
-	} else {
+	dst, err := net.DialTimeout("tcp", dstAddr, ss.TIMEOUT)
+	if err != nil {
+		// 连接远程服务器失败
+		log.Println(err)
 		return
 	}
+	defer dst.Close()
 
-	portInt := int(binary.BigEndian.Uint16(buf[len(buf)-2:]))
-	port := strconv.Itoa(portInt)
-
-	dstAddr := host + ":" + port
-
-	// 连接真正的远程服务
-	// 响应客户端连接结果
-	/**
-	+----+-----+-------+------+----------+----------+
-	|VER | REP |  RSV  | ATYP | BND.ADDR | BND.PORT |
-	+----+-----+-------+------+----------+----------+
-	| 1  |  1  | X'00' |  1   | Variable |    2     |
-	+----+-----+-------+------+----------+----------+
-	*/
-
-	if reqType == "tcp" {
-		dst, err := net.DialTimeout("tcp", dstAddr, ss.TIMEOUT)
+	// 双向转发
+	go func() {
+		_, err := ss.EncryptCopy(sclient, dst)
 		if err != nil {
-			// 连接远程服务器失败
-			log.Println(err)
-			return
-		}
-		defer dst.Close()
-
-		// 连接远程服务器成功
-		_, err = sclient.EncryptWrite([]byte{5, 0, 0, 1, 0, 0, 0, 0, 0, 0})
-		if err != nil {
-			log.Println(err)
-			return
-		}
-
-		// 双向转发
-		go func() {
-			_, err := ss.EncryptCopy(sclient, dst)
-			if err != nil {
-				dst.Close()
-				sclient.Close()
-				if err != io.EOF {
-					log.Println(err)
-				}
-				return
-			}
-		}()
-		_, err = ss.DecryptCopy(dst, sclient)
-		if err != nil && err != io.EOF {
+			dst.Close()
+			sclient.Close()
 			if err != io.EOF {
 				log.Println(err)
 			}
 			return
 		}
-	} else if reqType == "udp" {
-		_, err = sclient.EncryptWrite([]byte{5, 0, 0, 1, 0, 0, 0, 0, 0, 0})
-		if err != nil {
+	}()
+	_, err = ss.DecryptCopy(dst, sclient)
+	if err != nil && err != io.EOF {
+		if err != io.EOF {
 			log.Println(err)
-			return
 		}
+		return
 	}
 }
