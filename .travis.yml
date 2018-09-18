@@ -7,5 +7,5 @@ go_import_path: goladder
 
 script:
   - go test ./...
-  - go build src/local/local.go
-  - go build src/server/server.go
+  - go build cmd/local/main.go
+  - go build cmd/server/main.go
