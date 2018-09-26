@@ -21,7 +21,8 @@ func listenUdp() {
 	for {
 		buf := make([]byte, 4096)
 		_, addr, err := packetConn.ReadFrom(buf)
-		if err != nil {
+		// udp头最短10位
+		if err != nil || len(buf) < 10 {
 			log.Println(err)
 		} else {
 			go handleClientUdp(packetConn, addr, buf)
@@ -29,6 +30,36 @@ func listenUdp() {
 	}
 }
 
-func handleClientUdp(packetConn net.PacketConn, addr net.Addr, buf []byte) {
+func handleClientUdp(clientConn net.PacketConn, clientAddr net.Addr, buf []byte) {
+	serverConf, err := ss.BalanceServer(ss.Conf.Server, "udp")
+	if err != nil {
+		log.Println(err)
+		return
+	}
 
+	server := ss.UdpNat.GenConn(clientAddr.String(), serverConf.Addr)
+	if server == nil {
+		return
+	}
+	defer server.Close()
+
+	sserver, err := ss.InitSconn(server, serverConf.Password)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+
+	_, err = sserver.EncryptWrite(buf[3:])
+	if err != nil {
+		log.Println(err)
+		return
+	}
+
+	
 }
+
+func piplineUdp()  {
+	// 读客户端服务端消息发给
+}
+
+

@@ -45,12 +45,21 @@ func listenTcp() {
 // 处理客户端tcp连接
 func handleClientConn(client net.Conn) {
 	defer client.Close()
-	serverConf, server, err := ss.BalanceDial(ss.Conf.Server)
+
+	tcpPipline := false
+
+	serverConf, err := ss.BalanceServer(ss.Conf.Server, "tcp")
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	server, err := net.Dial("tcp", serverConf.Addr)
 	if err != nil {
 		log.Println(err)
 		return
 	}
 	defer server.Close()
+
 	var sserver *ss.Sconn
 
 	// 偷看前两位确定是socks5还是http
@@ -114,15 +123,29 @@ func handleClientConn(client net.Conn) {
 		// 请求类型 tcp or udp
 		reqType := ss.ParseSocksReqType(buf)
 
-		_, err = client.Write([]byte{5, 0, 0, 1, 0, 0, 0, 0, 0, 0})
-		if err != nil {
-			log.Println(err)
-			return
-		}
-
 		if reqType == "tcp" {
+			_, err = client.Write([]byte{5, 0, 0, 1, 0, 0, 0, 0, 0, 0})
+			if err != nil {
+				log.Println(err)
+				return
+			}
+
 			// 和服务器建立ss.Sconn
 			sserver, err = ss.InitSconn(server, serverConf.Password)
+			if err != nil {
+				log.Println(err)
+				return
+			}
+			tcpPipline = true
+
+		} else if reqType == "udp" {
+			reqBuf := []byte{5, 0, 0, 1, 0, 0, 0, 0}
+			portBuf, err := ss.PortBuff(ss.Conf.Local)
+			if err != nil {
+				return
+			}
+			reqBuf = append(reqBuf, portBuf...)
+			_, err = client.Write(reqBuf)
 			if err != nil {
 				log.Println(err)
 				return
@@ -148,13 +171,19 @@ func handleClientConn(client net.Conn) {
 			log.Println(err)
 			return
 		}
-	} else {
-		return
+
+		tcpPipline = true
 	}
 
+	if tcpPipline {
+		piplineCopy(client, sserver)
+	}
+}
+
+func piplineCopy(client net.Conn, sserver *ss.Sconn) {
 	// 双向转发
 	go func() {
-		_, err = ss.DecryptCopy(client, sserver)
+		_, err := ss.DecryptCopy(client, sserver)
 		if err != nil {
 			sserver.Close()
 			client.Close()
@@ -165,7 +194,7 @@ func handleClientConn(client net.Conn) {
 		}
 	}()
 
-	_, err = ss.EncryptCopy(sserver, client)
+	_, err := ss.EncryptCopy(sserver, client)
 	if err != nil {
 		if err != io.EOF {
 			log.Println(err)

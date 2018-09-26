@@ -47,21 +47,25 @@ func WeightRandom(w []Weight) int {
 
 // 均衡负载 随机一个服务器连接
 // 如果不可用启用备用服务器
-func BalanceDial(config []ServerConfig) (oneServer ServerConfig, conn net.Conn, err error) {
-	randomServer, backup := RandomServer(config)
-	serverConn, err := net.DialTimeout("tcp", randomServer.Addr, TIMEOUT)
+func BalanceServer(servers []ServerConfig, netType string) (ServerConfig, error) {
+	var server ServerConfig
+
+	randomServer, backup := RandomServer(servers)
+
+	serverConn, err := net.DialTimeout(netType, randomServer.Addr, TIMEOUT)
 	if err != nil && backup != (ServerConfig{}) {
-		backupConn, errb := net.DialTimeout("tcp", backup.Addr, TIMEOUT)
+		backupConn, errb := net.DialTimeout(netType, backup.Addr, TIMEOUT)
 		if errb != nil {
 			err = errb
 		}
-		oneServer = backup
-		conn = backupConn
+		server = backup
+		backupConn.Close()
 	} else {
-		oneServer = randomServer
-		conn = serverConn
+		server = randomServer
+		serverConn.Close()
 	}
-	return
+
+	return server, nil
 }
 
 // 随机服务器

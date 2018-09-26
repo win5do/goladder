@@ -123,3 +123,14 @@ func IsHttp(rd *bufio.Reader) bool {
 	}
 	return ok
 }
+
+func PortBuff(port string) ([]byte, error) {
+	portBuf := make([]byte, 2)
+	portInt, err := strconv.Atoi(port)
+	if err != nil {
+		return nil, err
+	}
+	binary.BigEndian.PutUint16(portBuf, uint16(portInt))
+
+	return portBuf, nil
+}
